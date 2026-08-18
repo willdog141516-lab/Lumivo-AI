@@ -28,7 +28,7 @@ The first reference scenario is a three-day Nanjing trip. It is the fixture, dem
 - Custom 3D effects: React Three Fiber and Three.js.
 - Coordinate contract: BD-09 at the map seam.
 - MVP persistence: browser `localStorage`; no database.
-- Local development: frontend on port 3000 and backend on port 9090.
+- Local development: frontend on port 9090 and backend on port 8000.
 - Delivery strategy: mock data first, then real Baidu data, then AI.
 - Deployment, authentication, cloud persistence, Redis, and queues are postponed until the local product flow is mature.
 

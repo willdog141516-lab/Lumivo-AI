@@ -10,7 +10,7 @@ Primary reference scenario: Nanjing, China, three days
 
 Lumivo AI is a China-first travel-planning experience where conversation and map animation tell the same story. The user asks for a trip in natural language. The system returns a map-verified itinerary and animates the progression from a globe to a flat map, into the destination city, and along each day's route.
 
-The MVP proves the complete experience locally before any production deployment work. It must be possible to develop and verify the product with a Next.js process on port 3000 and a FastAPI process on port 9090.
+The MVP proves the complete experience locally before any production deployment work. It must be possible to develop and verify the product with a Next.js process on port 9090 and a FastAPI process on port 8000.
 
 ## 2. Scope
 

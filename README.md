@@ -48,7 +48,7 @@ npm install
 npm run dev
 ```
 
-浏览器访问 [http://localhost:3000](http://localhost:3000)。
+浏览器访问 [http://localhost:9090](http://localhost:9090)。
 
 常用检查：
 
@@ -58,7 +58,7 @@ npx tsc --noEmit
 npm run build
 ```
 
-FastAPI 后端默认在 `http://localhost:9090` 运行。前端与后端分别启动，不要求 Docker、Nginx 或远程服务器。
+FastAPI 后端默认在 `http://localhost:8000` 运行。前端与后端分别启动，不要求 Docker、Nginx 或远程服务器。
 
 ## 项目文档
 
