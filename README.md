@@ -58,7 +58,7 @@ npx tsc --noEmit
 npm run build
 ```
 
-FastAPI 后端加入仓库后，默认在 `http://localhost:8000` 运行。前端与后端分别启动，不要求 Docker、Nginx 或远程服务器。
+FastAPI 后端默认在 `http://localhost:9090` 运行。前端与后端分别启动，不要求 Docker、Nginx 或远程服务器。
 
 ## 项目文档
 
