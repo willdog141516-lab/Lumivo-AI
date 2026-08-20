@@ -29,4 +29,21 @@ declare module "@baidumap/mapv-three" {
     removeBeforeRenderListener(listener: () => void): void;
     dispose(): void;
   }
+
+  export class BaiduVectorTileProvider {
+    constructor(options?: {
+      ak?: string;
+      displayOptions?: {
+        base?: boolean;
+        link?: boolean;
+        building?: boolean;
+        poi?: boolean;
+        flat?: boolean;
+      };
+    });
+  }
+
+  export class BaiduMapConfig {
+    static ak: string;
+  }
 }

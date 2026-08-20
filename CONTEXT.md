@@ -40,13 +40,13 @@ The repository currently has:
 - A full-screen homepage.
 - An R3F procedural Earth with stars, lighting, rotation, drag, and zoom.
 - A deterministic three-day Nanjing `TripPlan` and matching `StoryTimeline` fixture in `lib/trip/`.
-- A fixture-only `/map-stage-spike` that creates a JSAPI Three `Engine`, reuses its renderer/scene/camera in R3F, and advances R3F from the Engine render callback.
+- A `/map-stage-spike` that creates a JSAPI Three `Engine`, reuses its renderer/scene/camera in R3F, and advances R3F from the Engine render callback. It can use a locally ignored Baidu browser AK for vector tiles; without one it stays fixture-only.
 
 The repository does not yet have:
 
 - A visual `StoryPlayer` or playable fixture flow wired into the homepage.
 - A `backend/` FastAPI application.
-- A configured Baidu basemap, access key, POI lookup, or route lookup. The map-stage spike intentionally uses `provider: null` and does not load live tiles.
+- Verified live Baidu basemap behavior, POI lookup, or route lookup. The local spike has conditional vector-provider wiring, but live browser/provider evidence is still pending.
 - AI provider integration.
 - Backend Pydantic canonical `TripPlan` models.
 - StoryTimeline compilation or route playback UI.
@@ -64,7 +64,7 @@ The repository does not yet have:
 ## Immediate development sequence
 
 1. Build a static Nanjing `TripPlan` and `StoryTimeline` fixture. **Completed:** deterministic data and invariant tests now live in `lib/trip/`.
-2. Prove the JSAPI Three and R3F integration on one visible map stage. **Spike added:** `/map-stage-spike` compiles with a single Engine-owned render loop; live browser WebGL and live Baidu basemap evidence remain pending.
+2. Prove the JSAPI Three and R3F integration on one visible map stage. **Spike added:** `/map-stage-spike` has a single Engine-owned render loop and conditional Baidu vector-provider wiring; live browser WebGL and live Baidu basemap evidence remain pending.
 3. Implement StoryPlayer commands and deterministic route playback against the fixture.
 4. Add the FastAPI skeleton and mock map/model Adapters.
 5. Replace mock map data with real Baidu POI and route data.

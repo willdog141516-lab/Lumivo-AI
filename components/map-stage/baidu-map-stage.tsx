@@ -49,6 +49,8 @@ function OwnershipOverlay({ position, radius, reducedMotion }: OwnershipOverlayP
 }
 
 const firstPoi = nanjingTripPlan.days[0].stops[0].poi;
+const baiduMapAk = process.env.NEXT_PUBLIC_BAIDU_MAP_AK?.trim();
+const hasBaiduMapAk = Boolean(baiduMapAk);
 
 export default function BaiduMapStage() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -99,16 +101,30 @@ export default function BaiduMapStage() {
           return;
         }
 
-        // The provider is intentionally null in this spike. It proves the
-        // shared render ownership without shipping a key or live basemap.
+        // Keep the key in .env.local. The provider remains disabled when no
+        // local key is configured, so the fixture-only spike still works.
         window.MAPV_BASE_URL = "/mapvthree/";
+        if (baiduMapAk) {
+          mapvthree.BaiduMapConfig.ak = baiduMapAk;
+        }
+
         engine = new mapvthree.Engine(container, {
           rendering: {
             enableAnimationLoop: true,
             animationLoopFrameTime: 16,
           },
           map: {
-            provider: null,
+            provider: baiduMapAk
+              ? new mapvthree.BaiduVectorTileProvider({
+                  ak: baiduMapAk,
+                  displayOptions: {
+                    base: true,
+                    link: true,
+                    building: true,
+                    poi: true,
+                  },
+                })
+              : null,
             center: [firstPoi.point.lng, firstPoi.point.lat],
             projection: "EPSG:4326",
             range: 16000,
@@ -169,7 +185,11 @@ export default function BaiduMapStage() {
         );
 
         setStatus("ready");
-        setMessage("R3F 已挂载到 JSAPI Three 的 renderer / scene / camera");
+        setMessage(
+          baiduMapAk
+            ? "百度矢量底图与 R3F 已挂载到同一个 Engine"
+            : "R3F 已挂载到 JSAPI Three 的 renderer / scene / camera",
+        );
       } catch (error) {
         dispose();
 
@@ -220,7 +240,9 @@ export default function BaiduMapStage() {
             <p>Engine：负责唯一 WebGL 渲染循环</p>
             <p>R3F：只推进对象帧钩子，不直接 render</p>
             <p>数据：Nanjing fixture / BD-09</p>
-            <p>底图：未配置 AK，当前不加载百度瓦片</p>
+            <p>
+              底图：{hasBaiduMapAk ? "Baidu 矢量底图" : "未配置 AK，当前不加载百度瓦片"}
+            </p>
           </div>
         </div>
       </div>
