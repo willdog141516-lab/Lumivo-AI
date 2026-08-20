@@ -12,7 +12,7 @@ Goal: establish one WebGL ownership model for the future MapStage, with an optio
 - Copy only the Baidu vector parser Worker required by the online provider.
 - Mount a small R3F overlay into the Engine's existing renderer, scene, and camera.
 - Disable R3F's own animation loop and advance it from the Engine before-render callback.
-- Expose the spike at `/map-stage-spike`; leave the existing Earth homepage unchanged.
+- Expose the spike at `/map-stage-spike` and make the same MapStage visible at `/`; preserve the Earth prototype at `/earth`.
 
 ## Acceptance evidence
 

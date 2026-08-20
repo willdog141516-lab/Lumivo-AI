@@ -37,8 +37,8 @@ The first reference scenario is a three-day Nanjing trip. It is the fixture, dem
 The repository currently has:
 
 - A Next.js 16 application.
-- A full-screen homepage.
-- An R3F procedural Earth with stars, lighting, rotation, drag, and zoom.
+- A full-screen MapStage homepage at `/`.
+- An R3F procedural Earth with stars, lighting, rotation, drag, and zoom, preserved at `/earth`.
 - A deterministic three-day Nanjing `TripPlan` and matching `StoryTimeline` fixture in `lib/trip/`.
 - A `/map-stage-spike` that creates a JSAPI Three `Engine`, reuses its renderer/scene/camera in R3F, and advances R3F from the Engine render callback. It can use a locally ignored Baidu browser AK for vector tiles; without one it stays fixture-only.
 
