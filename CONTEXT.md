@@ -1,6 +1,6 @@
 # Lumivo AI Project Context
 
-Last updated: 2026-08-18
+Last updated: 2026-08-20
 
 This file is the short operational context for developers and coding agents. It records what the project is building, what has already been decided, what actually exists, and what should happen next.
 
@@ -40,12 +40,13 @@ The repository currently has:
 - A full-screen homepage.
 - An R3F procedural Earth with stars, lighting, rotation, drag, and zoom.
 - A deterministic three-day Nanjing `TripPlan` and matching `StoryTimeline` fixture in `lib/trip/`.
+- A fixture-only `/map-stage-spike` that creates a JSAPI Three `Engine`, reuses its renderer/scene/camera in R3F, and advances R3F from the Engine render callback.
 
 The repository does not yet have:
 
 - A visual `StoryPlayer` or playable fixture flow wired into the homepage.
 - A `backend/` FastAPI application.
-- Baidu Map scripts, access keys, POI lookup, or route lookup.
+- A configured Baidu basemap, access key, POI lookup, or route lookup. The map-stage spike intentionally uses `provider: null` and does not load live tiles.
 - AI provider integration.
 - Backend Pydantic canonical `TripPlan` models.
 - StoryTimeline compilation or route playback UI.
@@ -63,7 +64,7 @@ The repository does not yet have:
 ## Immediate development sequence
 
 1. Build a static Nanjing `TripPlan` and `StoryTimeline` fixture. **Completed:** deterministic data and invariant tests now live in `lib/trip/`.
-2. Prove the JSAPI Three and R3F integration on one visible map stage.
+2. Prove the JSAPI Three and R3F integration on one visible map stage. **Spike added:** `/map-stage-spike` compiles with a single Engine-owned render loop; live browser WebGL and live Baidu basemap evidence remain pending.
 3. Implement StoryPlayer commands and deterministic route playback against the fixture.
 4. Add the FastAPI skeleton and mock map/model Adapters.
 5. Replace mock map data with real Baidu POI and route data.
@@ -79,6 +80,7 @@ The repository does not yet have:
 | 2026-08-18 | No login in MVP | Login does not prove the core planning and playback experience. |
 | 2026-08-18 | R3F for custom animation, Baidu for map truth | This keeps creative control without rebuilding a street map engine. |
 | 2026-08-18 | Local-first delivery | The product flow should be useful before deployment work begins. |
+| 2026-08-20 | Baidu Engine owns the shared render loop | The R3F root reuses Engine renderer/scene/camera, disables its own loop, and advances from `addBeforeRenderListener`. |
 
 ## When to update this file
 
