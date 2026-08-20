@@ -39,13 +39,15 @@ The repository currently has:
 - A Next.js 16 application.
 - A full-screen homepage.
 - An R3F procedural Earth with stars, lighting, rotation, drag, and zoom.
+- A deterministic three-day Nanjing `TripPlan` and matching `StoryTimeline` fixture in `lib/trip/`.
 
 The repository does not yet have:
 
+- A visual `StoryPlayer` or playable fixture flow wired into the homepage.
 - A `backend/` FastAPI application.
 - Baidu Map scripts, access keys, POI lookup, or route lookup.
 - AI provider integration.
-- Canonical `TripPlan` models.
+- Backend Pydantic canonical `TripPlan` models.
 - StoryTimeline compilation or route playback UI.
 
 ## Core invariants
@@ -60,7 +62,7 @@ The repository does not yet have:
 
 ## Immediate development sequence
 
-1. Build a static Nanjing `TripPlan` and `StoryTimeline` fixture.
+1. Build a static Nanjing `TripPlan` and `StoryTimeline` fixture. **Completed:** deterministic data and invariant tests now live in `lib/trip/`.
 2. Prove the JSAPI Three and R3F integration on one visible map stage.
 3. Implement StoryPlayer commands and deterministic route playback against the fixture.
 4. Add the FastAPI skeleton and mock map/model Adapters.
