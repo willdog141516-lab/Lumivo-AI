@@ -558,7 +558,7 @@ test("storage removes corrupt or non-fixture markers and rejects mismatched resu
 Run:
 
 ~~~text
-node --test lib/trip/local-trip-store.test.mjs
+node --import=tsx --test lib/trip/local-trip-store.test.mjs
 ~~~
 
 Expected: module loading fails because local-trip-store.ts does not exist.
@@ -580,19 +580,20 @@ Create components/trip-story-home.tsx:
 ~~~tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 import TripStoryExperience from "@/components/trip-story-experience";
 import { loadActiveTrip } from "@/lib/trip/local-trip-store";
 import type { PlanningResult } from "@/lib/trip/types";
 
-export default function TripStoryHome({ fallback }: { fallback: PlanningResult }) {
-  const [result, setResult] = useState(fallback);
+const subscribe = () => () => {};
 
-  useEffect(() => {
-    const stored = loadActiveTrip();
-    if (stored) setResult(stored);
-  }, []);
+export default function TripStoryHome({ fallback }: { fallback: PlanningResult }) {
+  const result = useSyncExternalStore(
+    subscribe,
+    () => loadActiveTrip() ?? fallback,
+    () => fallback,
+  );
 
   return <TripStoryExperience plan={result.plan} timeline={result.timeline} />;
 }
@@ -605,7 +606,7 @@ Change app/page.tsx to remain a server composition page that imports nanjingPlan
 Run:
 
 ~~~text
-node --test lib/trip/local-trip-store.test.mjs
+node --import=tsx --test lib/trip/local-trip-store.test.mjs
 npm run lint
 npx tsc --noEmit --incremental false
 ~~~
@@ -791,7 +792,7 @@ npm run backend:test
 npm run backend:typecheck
 npm run lint
 npx tsc --noEmit --incremental false
-node --test lib/**/*.test.mjs
+node --import=tsx --test lib/**/*.test.mjs
 npm run build
 ~~~
 

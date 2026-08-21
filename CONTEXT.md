@@ -1,6 +1,6 @@
 # Lumivo AI Project Context
 
-Last updated: 2026-08-20
+Last updated: 2026-08-21
 
 This file is the short operational context for developers and coding agents. It records what the project is building, what has already been decided, what actually exists, and what should happen next.
 
@@ -23,13 +23,14 @@ The first reference scenario is a three-day Nanjing trip. It is the fixture, dem
 ## Confirmed technical decisions
 
 - Frontend: Next.js, React, TypeScript.
-- Backend: Python FastAPI with Pydantic models.
+- Backend: TypeScript Node service using native `http`/`fetch`; the current chat contract is maintained in focused TypeScript modules.
+- AI provider: OpenAI-compatible Chat Completions API; DeepSeek is the default local configuration and can be replaced through environment variables.
 - China map authority: Baidu Map JSAPI Three and Baidu Web APIs.
 - Custom 3D effects: React Three Fiber and Three.js.
 - Coordinate contract: BD-09 at the map seam.
 - MVP persistence: browser `localStorage`; no database.
-- Local development: frontend on port 9090 and backend on port 8000.
-- Delivery strategy: mock data first, then real Baidu data, then AI.
+- Local development: frontend on port 8989 and backend on port 8000.
+- Delivery strategy: deterministic map/story fixture first, then a provider-configurable AI chat slice, then a validated Nanjing fixture planning flow, followed by verified Baidu data and nationwide grounded itinerary planning.
 - Deployment, authentication, cloud persistence, Redis, and queues are postponed until the local product flow is mature.
 
 ## Current implementation
@@ -40,16 +41,19 @@ The repository currently has:
 - A full-screen MapStage homepage at `/`.
 - An R3F procedural Earth with stars, lighting, rotation, drag, and zoom, preserved at `/earth`.
 - A deterministic three-day Nanjing `TripPlan` and matching `StoryTimeline` fixture in `lib/trip/`.
+- A deterministic `StoryPlayer` state machine, shared homepage playback panel, and `TripStoryExperience` that sends the same semantic commands to MapStage.
+- MapStage fixture command translation for projection, camera flights, attraction markers, route drawing, and route-follow camera movement; commands are queued until the Engine is ready.
 - A `/map-stage-spike` that creates a JSAPI Three `Engine`, reuses its renderer/scene/camera in R3F, and advances R3F from the Engine render callback. It can use a locally ignored Baidu browser AK for vector tiles; without one it stays fixture-only.
+- A TypeScript Node backend in `backend/` with `GET /health`, `POST /api/chat`, bounded request validation, provider timeout/error mapping, and fake-provider tests.
+- A basic Chinese AI chat page at `/ai` that accepts arbitrary China destinations, keeps conversation state in memory, and calls the local backend.
+- A `POST /api/trips/plan` endpoint that supports only 南京/南京市 with 3 days, sends fixture UID/name candidates to the configured AI provider, and returns the canonical `nanjingPlanningResult` only after strict selection validation.
+- A focused `lumivo.active-trip.v1` browser marker store and `/` client wrapper that rehydrates the canonical Nanjing result while preserving the fixture fallback.
 
 The repository does not yet have:
 
-- A visual `StoryPlayer` or playable fixture flow wired into the homepage.
-- A `backend/` FastAPI application.
 - Verified live Baidu basemap behavior, POI lookup, or route lookup. The local spike has conditional vector-provider wiring, but live browser/provider evidence is still pending.
-- AI provider integration.
-- Backend Pydantic canonical `TripPlan` models.
-- StoryTimeline compilation or route playback UI.
+- Verified live Baidu POI and route data for arbitrary China destinations; the current planning endpoint remains fixture-only.
+- Live AI-provider smoke evidence; deterministic tests use a fake provider and do not spend quota.
 
 ## Core invariants
 
@@ -65,10 +69,10 @@ The repository does not yet have:
 
 1. Build a static Nanjing `TripPlan` and `StoryTimeline` fixture. **Completed:** deterministic data and invariant tests now live in `lib/trip/`.
 2. Prove the JSAPI Three and R3F integration on one visible map stage. **Spike added:** `/map-stage-spike` has a single Engine-owned render loop and conditional Baidu vector-provider wiring; live browser WebGL and live Baidu basemap evidence remain pending.
-3. Implement StoryPlayer commands and deterministic route playback against the fixture.
-4. Add the FastAPI skeleton and mock map/model Adapters.
-5. Replace mock map data with real Baidu POI and route data.
-6. Add AI planning constrained to the verified candidate set.
+3. Finish MapStage command translation for the deterministic StoryPlayer route playback. **Completed for the fixture:** shared player wiring, command runtime tests, marker/route overlays, and map camera commands now live on `/`.
+4. Connect the provider-configurable TypeScript chat slice to the verified Nanjing fixture planning contract. **Completed:** `/api/trips/plan`, strict UID validation, browser marker hydration, and `/ai` navigation now form the local acceptance flow.
+5. Add real Baidu POI and route data behind explicit adapters for arbitrary China destinations.
+6. Replace the fixture planner with AI planning constrained to the provider-verified candidate set and compile the result into the existing story flow.
 7. Add plan revision, recovery states, local persistence, and performance work.
 
 ## Decision log
@@ -76,11 +80,12 @@ The repository does not yet have:
 | Date | Decision | Reason |
 | --- | --- | --- |
 | 2026-08-18 | China-only MVP | Street-level accuracy and provider constraints require a focused launch region. |
-| 2026-08-18 | Python FastAPI backend | The user has Python familiarity and wants backend development support. |
 | 2026-08-18 | No login in MVP | Login does not prove the core planning and playback experience. |
 | 2026-08-18 | R3F for custom animation, Baidu for map truth | This keeps creative control without rebuilding a street map engine. |
 | 2026-08-18 | Local-first delivery | The product flow should be useful before deployment work begins. |
 | 2026-08-20 | Baidu Engine owns the shared render loop | The R3F root reuses Engine renderer/scene/camera, disables its own loop, and advances from `addBeforeRenderListener`. |
+| 2026-08-20 | TypeScript Node backend with configurable OpenAI-compatible provider | The initial AI web slice needs a small server-side boundary; DeepSeek is the default, not a hard-coded provider. |
+| 2026-08-21 | Fixture planning is fail-closed | The local planning endpoint may return only the canonical Nanjing fixture; other regions and invalid model selections produce structured errors. |
 
 ## When to update this file
 

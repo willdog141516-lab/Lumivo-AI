@@ -2,7 +2,7 @@
 
 Date: 2026-08-21
 
-Status: Awaiting written review
+Status: Approved
 
 ## 1. Purpose
 
@@ -24,9 +24,9 @@ This is the first planning contract, not the nationwide map integration. It prov
 - Strict parsing and validation of the AI JSON selection before returning a playable result.
 - A typed planner error when model output contains an unknown UID, missing day, duplicate POI, or invalid shape.
 - Explicit `UNSUPPORTED_REGION` for a conservative set of recognizable overseas destinations and `PLAN_NOT_AVAILABLE` for other destinations not covered by the fixture.
-- A small browser-only `localStorage` module for the last validated `PlanningResult`.
-- A planning action on `/ai` that stores the validated result and navigates to `/`.
-- A client wrapper on `/` that loads the stored validated result and falls back to the existing Nanjing fixture.
+- A small browser-only `localStorage` module that stores only the last validated fixture id/version marker.
+- A planning action on `/ai` that stores the validated fixture marker and navigates to `/`.
+- A client wrapper on `/` that loads the canonical fixture from the marker and falls back to the existing Nanjing fixture.
 
 ### Excluded
 
@@ -98,7 +98,7 @@ The planner depends on the existing `AiClient` interface:
 
 ```ts
 type TripPlanner = {
-  plan(request: NormalizedChatRequest): Promise<PlanningResult>;
+  plan(request: TripPlanRequest): Promise<PlanningResult>;
 };
 ```
 
@@ -117,11 +117,11 @@ The conservative overseas check is deliberately small and fail-closed: it recogn
 
 ## 5. Browser flow
 
-`AiChat` keeps the current conversational flow. When destination and days are filled, it exposes a separate “生成可播放行程” action. The action sends the current user request and bounded history to `/api/trips/plan`; it does not reuse a free-form assistant answer as a plan.
+`AiChat` keeps the current conversational flow. When destination and days are filled, it exposes a separate “生成可播放行程” action. The action sends the current user request to `/api/trips/plan`; it does not reuse a free-form assistant answer as a plan. The fixture planner deliberately uses the model call only to verify strict structured output; this slice does not personalize or reorder the canonical fixture.
 
-On success it calls `saveActiveTrip(result)` and navigates to `/`. On failure it keeps the chat and displays the structured Chinese error. The browser stores only the validated response in the focused key `lumivo.active-trip.v1`.
+On success it calls `saveActiveTrip(result)` and navigates to `/`. On failure it keeps the chat and displays a fixed Chinese error for the structured error code. The browser stores only the validated fixture id/version marker in the focused key `lumivo.active-trip.v1`; it never stores the full user-controlled response.
 
-The homepage remains a server composition page and renders a small client wrapper with the static Nanjing fixture as its initial fallback. After hydration, the wrapper loads the stored result, validates the plan/timeline identity and basic shape, and passes the result to the existing `TripStoryExperience`. Corrupt storage is removed and the fixture remains visible.
+The homepage remains a server composition page and renders a small client wrapper with the static Nanjing fixture as its server snapshot. The client wrapper reads the marker, returns the canonical `nanjingPlanningResult` only for the exact fixture id/version, and otherwise removes corrupt storage and keeps the fixture visible.
 
 ## 6. Security and invariants
 
@@ -130,7 +130,7 @@ The homepage remains a server composition page and renders a small client wrappe
 - The existing BD-09 coordinates, source UIDs, route geometry, distance, duration, plan version, and timeline version remain authoritative.
 - The server validates before returning a result; invalid model output never reaches `StoryPlayer`.
 - The route uses the existing CORS and 64 KiB body limit.
-- The browser does not store keys or raw provider responses.
+- The browser does not store keys, raw provider responses, or arbitrary plan objects.
 
 ## 7. Verification and acceptance
 
@@ -145,9 +145,9 @@ Backend tests must cover:
 
 Frontend/domain tests must cover:
 
-- valid stored result loads;
-- mismatched plan/timeline identity and corrupt JSON are discarded;
-- planning success stores the result and navigates through the existing `/ai` action (manual browser evidence for the click flow).
+- valid fixture marker loads the canonical result;
+- mismatched fixture marker, mismatched plan/timeline identity, and corrupt JSON are discarded;
+- planning success stores the marker and navigates through the existing `/ai` action (manual browser evidence for the click flow).
 
 Deterministic verification remains `npm run backend:test`, `npm run backend:typecheck`, `npm run lint`, `npx tsc --noEmit --incremental false`, and the existing Node tests. No live provider request is required for the default suite.
 
