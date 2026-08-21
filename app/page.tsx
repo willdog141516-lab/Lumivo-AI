@@ -1,5 +1,6 @@
-import BaiduMapStage from "@/components/map-stage/baidu-map-stage";
+import TripStoryHome from "@/components/trip-story-home";
+import { nanjingPlanningResult } from "@/lib/trip/nanjing-fixture";
 
 export default function Home() {
-  return <BaiduMapStage />;
+  return <TripStoryHome fallback={nanjingPlanningResult} />;
 }
