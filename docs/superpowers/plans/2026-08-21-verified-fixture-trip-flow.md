@@ -4,7 +4,7 @@
 
 **Goal:** Connect the existing AI chat to a validated, playable Nanjing fixture result while failing closed for destinations and model output that are not covered by verified data.
 
-**Architecture:** Add one fixture TripPlanner behind the existing AiClient, expose it through POST /api/trips/plan, and return the existing nanjingPlanningResult only when the model selects the exact known fixture schedule. Store only that validated result in one focused browser storage module; the homepage reads it after hydration and keeps the existing fixture as its fallback.
+**Architecture:** Add one fixture TripPlanner behind the existing AiClient, expose it through POST /api/trips/plan, and return the existing nanjingPlanningResult only when the model selects the exact known fixture schedule. This model call deliberately verifies structured output only; it does not personalize or reorder the fixture. Persist a small fixture identity marker in one focused browser storage module, then hydrate the canonical fixture from that marker on the homepage.
 
 **Tech Stack:** TypeScript, native Node http/fetch, existing Next.js 16 and React 19, Node test runner, tsx, existing lib/trip domain types and fixture.
 
@@ -17,6 +17,7 @@
 - The AI receives fixture UID/name candidates only; it never supplies coordinates, route geometry, distances, durations, opening hours, or POI identity.
 - The existing nanjingPlanningResult is the only source of POI, route, narration, TripPlan, and StoryTimeline facts in this slice.
 - Invalid provider JSON or selection mismatch returns MODEL_OUTPUT_INVALID; no invalid result reaches StoryPlayer or browser storage.
+- The fixture model call is a deliberate structured-output verification seam. It does not make the itinerary preference-sensitive; remove this call rather than pretending otherwise if that verification is no longer required.
 - The API key stays in backend/.env; browser code reads only NEXT_PUBLIC_AI_BACKEND_URL.
 - Reuse the existing native server, AiClient, parseChatRequest, frontend domain types, and fixture. Do not add Express, a provider factory, a database, a new UI library, or a second map/model abstraction.
 - Every non-trivial behavior follows TDD: write the failing test, run it, implement the minimum, rerun focused tests, then commit.
@@ -34,8 +35,8 @@
 | backend/server.ts | Add OPTIONS /api/trips/plan, request parsing, planner invocation, and planner error mapping. |
 | backend/start.ts | Construct the fixture planner from the configured AiClient. |
 | backend/tests/server.test.ts | Planning endpoint HTTP behavior. |
-| lib/trip/local-trip-store.ts | Browser-only validated PlanningResult save/load/clear functions. |
-| lib/trip/local-trip-store.test.mjs | Storage validation and corruption tests. |
+| lib/trip/local-trip-store.ts | Browser-only fixture marker save/load/clear functions that always hydrate the canonical result. |
+| lib/trip/local-trip-store.test.mjs | Fixture-marker validation and corruption tests. |
 | components/trip-story-home.tsx | Hydrate stored result into the existing story experience with fixture fallback. |
 | components/ai-chat.tsx | Add the plan action and navigate after a successful validated plan. |
 | app/page.tsx | Keep server composition while passing the fixture fallback to the client wrapper. |
@@ -55,11 +56,9 @@
 
 - [ ] **Step 1: Write the failing request-contract tests**
 
-Append these tests to backend/tests/config.test.ts:
+Change the existing types import at the top of backend/tests/config.test.ts to `import { parseChatRequest, parseTripPlanRequest } from "../types.js";`, then append this test:
 
 ~~~ts
-import { parseTripPlanRequest } from "../types.js";
-
 test("trip planning input requires a destination and day count", () => {
   assert.deepEqual(
     parseTripPlanRequest({
@@ -182,14 +181,18 @@ import test from "node:test";
 
 import type { AiClient } from "../ai-client.js";
 import { createFixtureTripPlanner, TripPlannerError } from "../trip-planner.js";
-import { nanjingPlanningResult, nanjingTripPlan } from "../../lib/trip/nanjing-fixture.ts";
+import { nanjingPlanningResult, nanjingTripPlan } from "../../lib/trip/nanjing-fixture.js";
 
-const validSelection = JSON.stringify({
-  days: nanjingTripPlan.days.map((day) => ({
+function fixtureSelection() {
+  return {
+    days: nanjingTripPlan.days.map((day) => ({
     day: day.day,
     poiUids: day.stops.map((stop) => stop.poi.uid),
-  })),
-});
+    })),
+  };
+}
+
+const validSelection = JSON.stringify(fixtureSelection());
 
 function fakeClient(content: string, onCall?: (prompt: string) => void): AiClient {
   return {
@@ -217,10 +220,20 @@ test("fixture planner returns the existing playable result after valid UID selec
 
 for (const [name, content] of [
   ["malformed JSON", "not-json"],
-  ["unknown UID", JSON.stringify({ days: [{ day: 1, poiUids: ["unknown"] }] })],
-  ["duplicate UID", JSON.stringify({ days: [{ day: 1, poiUids: ["fixture-nanjing-fuzimiao", "fixture-nanjing-fuzimiao"] }] })],
-  ["missing day", JSON.stringify({ days: [{ day: 1, poiUids: [] }] })],
-  ["wrong schedule", JSON.stringify({ days: nanjingTripPlan.days.map((day) => ({ day: day.day, poiUids: [...day.stops].reverse().map((stop) => stop.poi.uid) })) })],
+  ["unknown UID", JSON.stringify({
+    days: fixtureSelection().days.map((day) => day.day === 1
+      ? { ...day, poiUids: ["unknown", ...day.poiUids.slice(1)] }
+      : day),
+  })],
+  ["duplicate UID", JSON.stringify({
+    days: fixtureSelection().days.map((day) => day.day === 1
+      ? { ...day, poiUids: [day.poiUids[0], day.poiUids[0], ...day.poiUids.slice(2)] }
+      : day),
+  })],
+  ["missing day", JSON.stringify({ days: fixtureSelection().days.slice(0, -1) })],
+  ["wrong schedule", JSON.stringify({
+    days: fixtureSelection().days.map((day) => ({ ...day, poiUids: [...day.poiUids].reverse() })),
+  })],
 ] as const) {
   test("fixture planner rejects " + name, async () => {
     await assert.rejects(
@@ -277,7 +290,7 @@ Expected: collection fails because backend/trip-planner.ts does not exist.
 
 - [ ] **Step 3: Implement the planner with a strict fixture boundary**
 
-Create backend/trip-planner.ts. Import AiClient and TripPlanRequest from backend modules, import the existing nanjingPlanningResult and nanjingTripPlan from lib/trip/nanjing-fixture.ts, and import the existing PlanningResult type from lib/trip/types.ts.
+Create backend/trip-planner.ts. Import AiClient and TripPlanRequest from backend modules, import the existing nanjingPlanningResult and nanjingTripPlan from `../lib/trip/nanjing-fixture.js`, and import the existing PlanningResult type from `../lib/trip/types.js`. Match the existing backend's `.js` specifiers: tsx resolves them to the TypeScript sources during local execution and backend typecheck remains valid without changing tsconfig.
 
 Use this conservative marker list:
 
@@ -333,12 +346,12 @@ git commit -m "feat: validate ai selection against trip fixture"
 
 - [ ] **Step 1: Add failing in-process HTTP tests**
 
-Extend backend/tests/server.test.ts with a fake planner and these tests:
+Extend the existing import block in backend/tests/server.test.ts with these imports, then add a fake planner and these tests below the existing fake-client helper:
 
 ~~~ts
 import type { TripPlanner } from "../trip-planner.js";
 import { TripPlannerError } from "../trip-planner.js";
-import { nanjingPlanningResult } from "../../lib/trip/nanjing-fixture.ts";
+import { nanjingPlanningResult } from "../../lib/trip/nanjing-fixture.js";
 
 function fakePlanner(onCall?: () => void): TripPlanner {
   return {
@@ -481,7 +494,7 @@ git commit -m "feat: expose validated fixture planning endpoint"
 - Modify: app/page.tsx
 
 **Interfaces:**
-- Consumes: PlanningResult and TripStoryExperience.
+- Consumes: PlanningResult, nanjingPlanningResult, and TripStoryExperience.
 - Produces:
 
 ~~~ts
@@ -511,23 +524,32 @@ function createStorage(value) {
   };
 }
 
-test("storage round-trips a plan bound to its timeline", () => {
+test("storage restores the canonical fixture from its marker", () => {
   const storage = createStorage(null);
   saveActiveTrip(nanjingPlanningResult, storage);
+  assert.deepEqual(JSON.parse(storage.getItem()), {
+    tripId: nanjingPlanningResult.plan.id,
+    tripVersion: nanjingPlanningResult.plan.version,
+  });
   assert.deepEqual(loadActiveTrip(storage), nanjingPlanningResult);
 });
 
-test("storage removes corrupt JSON and mismatched timeline identity", () => {
+test("storage removes corrupt or non-fixture markers and rejects mismatched results", () => {
   const corrupt = createStorage("not-json");
   assert.equal(loadActiveTrip(corrupt), null);
   assert.equal(corrupt.getItem(), null);
 
-  const mismatch = createStorage(JSON.stringify({
-    ...nanjingPlanningResult,
-    timeline: { ...nanjingPlanningResult.timeline, tripId: "wrong-trip" },
-  }));
-  assert.equal(loadActiveTrip(mismatch), null);
-  assert.equal(mismatch.getItem(), null);
+  const wrongFixture = createStorage(JSON.stringify({ tripId: "wrong-trip", tripVersion: 1 }));
+  assert.equal(loadActiveTrip(wrongFixture), null);
+  assert.equal(wrongFixture.getItem(), null);
+
+  assert.throws(
+    () => saveActiveTrip({
+      ...nanjingPlanningResult,
+      timeline: { ...nanjingPlanningResult.timeline, tripId: "wrong-trip" },
+    }, createStorage(null)),
+    /可播放行程/,
+  );
 });
 ~~~
 
@@ -543,7 +565,13 @@ Expected: module loading fails because local-trip-store.ts does not exist.
 
 - [ ] **Step 3: Implement the focused storage module**
 
-Use localStorage only when no explicit test storage is passed and window exists. Save JSON under ACTIVE_TRIP_STORAGE_KEY. loadActiveTrip must catch JSON errors, require plan.id, finite numeric plan.version, a plan.days array, timeline.tripId equal to plan.id, timeline.tripVersion equal to plan.version, and a timeline.chapters array; invalid values call removeItem and return null. saveActiveTrip rejects the same invalid shape before writing. clearActiveTrip removes the key and is a no-op outside a browser.
+Use localStorage only when no explicit test storage is passed and window exists. Do not persist a user-controlled PlanningResult object. Import nanjingPlanningResult and write only this marker under ACTIVE_TRIP_STORAGE_KEY:
+
+~~~ts
+{ tripId: nanjingPlanningResult.plan.id, tripVersion: nanjingPlanningResult.plan.version }
+~~~
+
+saveActiveTrip requires result.plan.id and result.timeline.tripId to equal the fixture id and result.plan.version and result.timeline.tripVersion to equal the fixture version; otherwise throw Error("可播放行程校验失败"). loadActiveTrip catches JSON errors, accepts only the exact marker above, and returns the imported nanjingPlanningResult. Every other value removes the key and returns null. clearActiveTrip removes the key and is a no-op outside a browser. This keeps every playback field canonical even if localStorage is edited.
 
 - [ ] **Step 4: Add the homepage client wrapper**
 
@@ -614,31 +642,63 @@ There is no React test runner in this repository. The deterministic seams are th
 
 - [ ] **Step 2: Implement the planning action**
 
-Add useRouter, PlanningResult, and saveActiveTrip. Keep the existing free-form submitMessage path unchanged. Add planning state and a createPlayablePlan handler that:
+Add useRouter, PlanningResult, and saveActiveTrip. Keep the existing free-form submitMessage path unchanged. Add this module-level response type and fixed error table; only this table may surface a server planning error:
 
 ~~~tsx
+type PlanningResponse = {
+  plan?: PlanningResult["plan"];
+  timeline?: PlanningResult["timeline"];
+  error?: { code?: string };
+};
+
+const planningErrorMessages: Record<string, string> = {
+  UNSUPPORTED_REGION: "暂不支持该地区，等待后续开发",
+  PLAN_NOT_AVAILABLE: "当前目的地的可播放行程尚未接入",
+  MODEL_OUTPUT_INVALID: "AI 返回的行程选择无法通过校验",
+};
+~~~
+
+Inside AiChat, add `const [planning, setPlanning] = useState(false);` and `const isBusy = pending || planning;`. Then add this handler:
+
+~~~tsx
+async function createPlayablePlan() {
+  const normalizedDestination = destination.trim();
+  const dayCount = Number(days);
+  if (isBusy || !normalizedDestination || !Number.isInteger(dayCount) || dayCount < 1 || dayCount > 30) {
+    return;
+  }
+
 const planMessage = [...messages].reverse().find((item) => item.role === "user")?.content
   ?? "请生成可播放行程";
 
-const response = await fetch(backendUrl + "/api/trips/plan", {
-  method: "POST",
-  headers: { "content-type": "application/json" },
-  body: JSON.stringify({
-    message: planMessage,
-    history: messages.slice(-20),
-    destination: destination.trim(),
-    days: Number(days),
-  }),
-});
-const data = await response.json();
-if (!response.ok || !data.plan || !data.timeline) {
-  throw new Error(data.error?.message || "可播放行程生成失败，请稍后再试。");
+  setError(null);
+  setPlanning(true);
+  try {
+    const response = await fetch(backendUrl + "/api/trips/plan", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message: planMessage,
+        destination: normalizedDestination,
+        days: dayCount,
+      }),
+    });
+    const data = await response.json() as PlanningResponse;
+    if (!response.ok || !data.plan || !data.timeline) {
+      setError(planningErrorMessages[data.error?.code ?? ""] ?? "可播放行程生成失败，请稍后再试。");
+      return;
+    }
+    saveActiveTrip({ plan: data.plan, timeline: data.timeline });
+    router.push("/");
+  } catch {
+    setError("可播放行程生成失败，请稍后再试。");
+  } finally {
+    setPlanning(false);
+  }
 }
-saveActiveTrip(data);
-router.push("/");
 ~~~
 
-Require a non-empty destination, integer days from 1 through 30, and no concurrent chat/planning request before sending. Use fixed Chinese fallback errors; do not display raw network/provider errors. Disable both buttons while either request is pending. Show the planning button when destination and days are present, with a short note that this local playback slice currently covers only the Nanjing three-day fixture.
+The fixture planner replaces the outgoing message with its fixed UID-only prompt, so do not send history on this action. Require a non-empty destination, integer days from 1 through 30, and no concurrent chat/planning request before sending. Replace every existing `disabled={pending}` with `disabled={isBusy}`, including both buttons; use the appropriate pending label for chat versus planning. Show the planning button only for a valid destination/day count, with a short note that this local playback slice currently covers only the Nanjing three-day fixture. Network, malformed JSON, and unknown errors use only the generic fallback; no raw error text is rendered.
 
 - [ ] **Step 3: Run frontend checks**
 
@@ -666,6 +726,7 @@ git commit -m "feat: connect ai chat to playable trip fixture"
 - Modify: CONTEXT.md
 - Modify: README.md
 - Modify: docs/superpowers/specs/2026-08-18-local-first-ai-travel-map-design.md
+- Modify: docs/superpowers/specs/2026-08-21-verified-fixture-trip-flow-design.md
 
 **Interfaces:**
 - Consumes: the implemented POST /api/trips/plan, browser storage key, and fixture-only boundary.
@@ -677,7 +738,7 @@ Add to CONTEXT.md current implementation:
 
 ~~~text
 - A validated POST /api/trips/plan fixture contract: the AI may select only the known Nanjing fixture UIDs, and the server returns the existing playable Plan/Timeline only after strict validation.
-- The /ai planning action stores the validated result in lumivo.active-trip.v1 and the homepage hydrates it while keeping the Nanjing fixture as fallback.
+- The /ai planning action stores the validated fixture identity marker in lumivo.active-trip.v1; the homepage hydrates the canonical Nanjing fixture from that marker and keeps it as fallback.
 ~~~
 
 Move the immediate next milestone to Baidu POI/route adapters for arbitrary China destinations. Keep live provider evidence pending explicit.
@@ -693,9 +754,21 @@ Add to README.md the local flow:
 
 Document that non-Nanjing destinations are not yet verified/plannable by this endpoint.
 
-Add a current implementation section to the architecture spec stating that POST /api/trips/plan and browser hydration are implemented for the Nanjing fixture, while the broader Baidu-backed planning contract remains future work.
+At the top of the architecture spec, add this authoritative current-state paragraph:
 
-Update the approved design spec `docs/superpowers/specs/2026-08-21-verified-fixture-trip-flow-design.md` from `Awaiting written review` to `Approved` so the recorded decision matches the user's approval.
+~~~text
+The implemented planning slice is TypeScript Node JSON transport: POST /api/trips/plan accepts TripPlanRequest and returns PlanningResult directly for the validated Nanjing fixture. Browser persistence stores only the fixture id/version marker and reloads the canonical fixture. The FastAPI, Pydantic, and application/x-ndjson sections below are historical larger-architecture proposals, not the current implementation contract.
+~~~
+
+Keep the broader Baidu-backed planning contract explicitly future work. Do not describe the historical FastAPI `TripClient` or NDJSON endpoints as current behavior.
+
+Update the approved design spec `docs/superpowers/specs/2026-08-21-verified-fixture-trip-flow-design.md` as follows:
+
+~~~text
+Status: Approved
+~~~
+
+Change its planner interface to `plan(request: TripPlanRequest): Promise<PlanningResult>;`, and replace its wording that says the browser stores a `PlanningResult` with wording that says it stores the validated fixture id/version marker and rehydrates the canonical fixture. This keeps the approved design and the implemented storage boundary consistent.
 
 - [ ] **Step 2: Run documentation and secret checks**
 
@@ -737,7 +810,7 @@ Then open http://localhost:8989/ai in the already running frontend and perform t
 - [ ] **Step 5: Commit documentation and report actual evidence**
 
 ~~~text
-git add CONTEXT.md README.md docs/superpowers/specs/2026-08-18-local-first-ai-travel-map-design.md
+git add CONTEXT.md README.md docs/superpowers/specs/2026-08-18-local-first-ai-travel-map-design.md docs/superpowers/specs/2026-08-21-verified-fixture-trip-flow-design.md
 git commit -m "docs: record verified fixture trip flow"
 ~~~
 
