@@ -2,7 +2,7 @@
 
 Date: 2026-08-18
 
-Status: Awaiting written review
+Status: Awaiting written review for the larger map-backed architecture
 
 Primary reference scenario: Nanjing, China, three days
 
@@ -10,7 +10,15 @@ Primary reference scenario: Nanjing, China, three days
 
 Lumivo AI is a China-first travel-planning experience where conversation and map animation tell the same story. The user asks for a trip in natural language. The system returns a map-verified itinerary and animates the progression from a globe to a flat map, into the destination city, and along each day's route.
 
-The MVP proves the complete experience locally before any production deployment work. It must be possible to develop and verify the product with a Next.js process on port 3000 and a FastAPI process on port 8000.
+The MVP proves the complete experience locally before any production deployment work. It must be possible to develop and verify the product with a Next.js process on port 8989 and a backend process on port 8000.
+
+## Current local implementation addendum (2026-08-21)
+
+The implemented planning slice is TypeScript Node JSON transport: `POST /api/trips/plan` accepts `TripPlanRequest` and returns `PlanningResult` directly for the validated Nanjing fixture. Browser persistence stores only the fixture id/version marker and reloads the canonical fixture. The FastAPI, Pydantic, and `application/x-ndjson` sections below are historical larger-architecture proposals, not the current implementation contract.
+
+The current local slice exposes `GET /health`, `POST /api/chat`, and `POST /api/trips/plan`, with the Next.js AI search page at `/` and `/ai` as a compatible entry point. Playable planning results drill down to `/trip`, which renders the existing MapStage story experience. Free-form chat accepts arbitrary China destinations and returns conversational suggestions. The planning endpoint accepts only `南京`/`南京市` with three days, sends fixture UID/name candidates to the configured OpenAI-compatible provider, and returns the existing `nanjingPlanningResult` only after strict selection validation. It does not claim verified Baidu data for other destinations, and the earlier FastAPI/Pydantic Phase 2 direction remains superseded while the map/provider invariants remain in force.
+
+The broader map-backed architecture below remains future work. Its historical FastAPI, Pydantic, `TripClient`, and NDJSON contracts must not be presented as implemented behavior.
 
 ## 2. Scope
 
@@ -449,9 +457,13 @@ A passing build proves compilation only. The MVP acceptance record separately id
 
 Create the canonical Nanjing fixture, prove the JSAPI Three/R3F ownership model, and implement deterministic StoryPlayer behavior. The deliverable is a fully playable local story with no live provider dependency.
 
-### Phase 2: local backend contracts
+### Phase 2: local backend contracts (superseded direction)
 
-Create FastAPI, Pydantic models, OpenAPI type generation, MockMap, MockModel, PlanValidator, StoryCompiler, and streaming progress. The deliverable is a complete frontend-to-backend fixture flow.
+The earlier FastAPI/Pydantic implementation plan is superseded for this prototype. The future verified-planning contract still needs canonical models, map/model seams, validation, compilation, and progress reporting, but it will be designed around the current TypeScript backend when that slice begins.
+
+### Phase 2A: provider-configurable AI web slice and verified fixture flow (implemented local foundation)
+
+The TypeScript Node chat service, fixture planner, strict UID validation, server-side key boundary, `/`/`/ai` AI search action, `/trip` route-story page, canonical fixture marker storage, and trip-page playback wrapper provide a deterministic local planning foundation. It intentionally stops before Baidu lookup and nationwide verified itinerary generation.
 
 ### Phase 3: real map facts
 
@@ -482,7 +494,7 @@ Production deployment is a separate project decision after Phase 5. It does not 
 ## 16. Review decisions captured by this specification
 
 - The MVP is China-only.
-- Python is the backend language.
+- The current basic AI web slice uses TypeScript Node; the larger verified-planning backend remains a future TypeScript design task.
 - Login is designed out of the MVP, not partially implemented.
 - R3F is retained for custom animation, while Baidu remains the map authority.
 - Deployment work begins only after the local experience is substantially complete.

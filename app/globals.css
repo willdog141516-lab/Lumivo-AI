@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@source "../node_modules/streamdown/dist/*.js";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -124,7 +125,110 @@
   body {
     @apply bg-background text-foreground;
   }
-  html {
+html {
     @apply font-sans;
+  }
+}
+
+.ai-home-map {
+  position: absolute;
+  inset: 0;
+  opacity: 0.55;
+  background-image:
+    linear-gradient(117deg, transparent 0 18%, rgba(134, 214, 202, 0.12) 18.1% 18.25%, transparent 18.35% 43%, rgba(134, 214, 202, 0.08) 43.1% 43.2%, transparent 43.3%),
+    linear-gradient(26deg, transparent 0 34%, rgba(134, 214, 202, 0.12) 34.1% 34.25%, transparent 34.35% 70%, rgba(134, 214, 202, 0.08) 70.1% 70.2%, transparent 70.3%),
+    linear-gradient(rgba(169, 224, 215, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(169, 224, 215, 0.05) 1px, transparent 1px);
+  background-position: 10% 15%, 70% 45%, center, center;
+  background-size: 100% 100%, 100% 100%, 64px 64px, 64px 64px;
+  mask-image: radial-gradient(ellipse at center, black 15%, transparent 76%);
+}
+
+.ai-home-map::before,
+.ai-home-map::after {
+  position: absolute;
+  content: "";
+  border: 1px solid rgba(139, 233, 221, 0.16);
+  border-radius: 50%;
+  transform: rotate(-18deg) skewX(-18deg);
+}
+
+.ai-home-map::before {
+  top: 9%;
+  right: 6%;
+  width: 28rem;
+  height: 13rem;
+  box-shadow: 0 0 0 2rem rgba(139, 233, 221, 0.025), 0 0 0 5rem rgba(139, 233, 221, 0.018);
+}
+
+.ai-home-map::after {
+  bottom: 12%;
+  left: 3%;
+  width: 24rem;
+  height: 11rem;
+  box-shadow: 0 0 0 2rem rgba(139, 233, 221, 0.025), 0 0 0 5rem rgba(139, 233, 221, 0.018);
+}
+
+.ai-home-glow {
+  position: absolute;
+  top: 18%;
+  left: 50%;
+  width: min(52rem, 80vw);
+  height: min(32rem, 60vh);
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(74, 180, 168, 0.12), transparent 68%);
+  filter: blur(20px);
+  pointer-events: none;
+}
+
+.ai-home-days {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.ai-home-days::-webkit-inner-spin-button,
+.ai-home-days::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
+.ai-home-scrollbar {
+  scrollbar-color: rgba(148, 163, 184, 0.5) transparent;
+  scrollbar-width: thin;
+}
+
+.ai-home-page-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.ai-home-page-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.ai-home-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.ai-home-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ai-home-scrollbar::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+  background-color: rgba(148, 163, 184, 0.5);
+}
+
+.ai-home-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(165, 243, 252, 0.75);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-home-glow {
+    filter: none;
   }
 }

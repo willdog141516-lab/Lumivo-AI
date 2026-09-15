@@ -1,12 +1,12 @@
 # Lumivo AI
 
-Lumivo AI 是一个以地图叙事为核心的 AI 旅行规划产品。用户用自然语言描述旅行需求，例如“我计划去南京玩三天”，系统生成经过地图数据校验的行程，并通过地球、城市地图、路线和景点讲解逐步演示整个旅程。
+Lumivo AI 是一个以地图叙事为核心的 AI 旅行规划产品。当前提供可切换 AI provider 的基础聊天入口，并把南京三日 fixture 接成一个可验证、可播放的本地闭环；全国目的地的地图校验仍待百度数据接入。
 
 项目当前采用“本地功能优先”策略：先完成可运行、可验证的本地闭环，再评估登录、云端存储和服务器部署。
 
 ## 首版范围
 
-- 中国境内的 AI 行程规划
+- 中国境内的 AI 旅行建议与行程方向
 - 街道级地图浏览与景点查看
 - 地球到平面地图、城市和首个景点的镜头过渡
 - 分日路线绘制、镜头跟随、景点讲解与播放控制
@@ -21,13 +21,17 @@ Lumivo AI 是一个以地图叙事为核心的 AI 旅行规划产品。用户用
 - Next.js 首页替换
 - React Three Fiber 交互式地球原型
 - 鼠标拖动、缩放、自动旋转和星空背景
+- 南京三日 fixture 的 StoryPlayer、播放控制和 MapStage 路线叠加层
+- TypeScript Node AI backend：`/health`、`/api/chat`、请求校验、超时和 provider 错误处理
+- `/ai` 基础中文聊天页面，支持任意中国目的地、天数、加载和错误状态
+- `POST /api/trips/plan`：仅支持南京三日 fixture，严格校验 AI 返回的 fixture UID 和顺序
+- `/ai` 的“生成可播放行程”动作，以及 `lumivo.active-trip.v1` fixture 标识存储
 
 尚未接入：
 
-- Python FastAPI 后端
-- 百度地图 JSAPI Three、POI 和路线服务
-- AI 模型与行程规划流程
-- StoryPlayer 路线动画播放器
+- 真实百度 POI、路线服务和在线地图验证
+- 南京以外目的地的已验证 `TripPlan` / `StoryTimeline` 规划流程
+- 生产部署、登录和云端持久化
 
 ## 技术方向
 
@@ -36,29 +40,49 @@ Lumivo AI 是一个以地图叙事为核心的 AI 旅行规划产品。用户用
 | 前端应用 | Next.js 16、React 19、TypeScript | 页面、对话、行程详情和状态管理 |
 | 三维效果 | React Three Fiber、Three.js | 地球和地图上的自定义视觉效果 |
 | 地图能力 | 百度地图 JSAPI Three / Web API | 中国地图、POI、坐标、路线和地图相机 |
-| 后端 | Python、FastAPI、Pydantic | AI 编排、地图数据校验和统一数据契约 |
-| 本地存储 | localStorage | 首版行程草稿和最近一次规划 |
+| 后端 | TypeScript、Node `http`/`fetch` | AI provider 代理、请求边界和统一聊天响应 |
+| 本地存储 | localStorage | 最近一次已验证 fixture 的 id/version 标识 |
 
 ## 本地运行
-
-当前仓库只包含前端：
 
 ```bash
 npm install
 npm run dev
+npm run backend:dev
 ```
 
-浏览器访问 [http://localhost:3000](http://localhost:3000)。
+前端访问 [http://localhost:8989](http://localhost:8989)，AI 聊天页为 [http://localhost:8989/ai](http://localhost:8989/ai)；backend 默认监听 `http://localhost:8000`。
+
+验证南京本地可播放闭环：
+
+1. 启动 `npm run backend:dev` 和 `npm run dev`。
+2. 打开 `/ai`，填写“南京”和 `3` 天。
+3. 点击“生成可播放行程”，页面会回到 `/` 并加载路线故事。
+4. 使用成都等未接入目的地时，页面会显示明确的未接入提示。
+
+将本地 provider 配置放在被忽略的 `backend/.env` 中。DeepSeek 是默认配置，也可以切换任意 OpenAI-compatible Chat Completions API：
+
+```text
+AI_BASE_URL=https://api.deepseek.com
+AI_API_KEY=
+AI_MODEL=deepseek-chat
+AI_TIMEOUT_MS=30000
+CORS_ORIGIN=http://localhost:8989
+```
+
+已有 `DEEPSEEK_API_KEY` 时会作为 `AI_API_KEY` 的 fallback；key 只在 backend 使用，不会进入浏览器。
 
 常用检查：
 
 ```bash
 npm run lint
 npx tsc --noEmit
+npm run backend:test
+npm run backend:typecheck
 npm run build
 ```
 
-FastAPI 后端加入仓库后，默认在 `http://localhost:8000` 运行。前端与后端分别启动，不要求 Docker、Nginx 或远程服务器。
+前端与 backend 分别启动，不要求 Docker、Nginx 或远程服务器。当前自由聊天仍返回 AI 建议；可播放行程只返回已有南京 fixture，不宣称其他目的地的坐标、路线距离、营业时间或实时信息已经过地图验证。
 
 ## 项目文档
 
@@ -72,4 +96,4 @@ FastAPI 后端加入仓库后，默认在 `http://localhost:8000` 运行。前�
 2. AI 不生成坐标、路线几何或未经验证的景点。
 3. 播放器只消费通过校验且版本匹配的行程。
 4. 首版只承诺中国境内能力，海外不做降级猜测。
-5. 先完成南京三日游本地闭环，再扩展城市、账号和部署。
+5. 先把 provider-configurable chat 接到已验证的南京 fixture，再扩展百度事实、全国目的地行程编排、账号和部署。
