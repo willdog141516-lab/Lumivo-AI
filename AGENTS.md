@@ -19,14 +19,15 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## Product scope
 
-Lumivo AI is a China-first AI trip planner with street-level map browsing and route-story animation. The first local milestone is a complete Nanjing three-day flow: request, verified itinerary, globe-to-map transition, route playback, and attraction narration.
+Lumivo AI is a China-first AI trip planner with street-level map browsing and route-story animation. The current local milestone is a basic `/ai` chat for arbitrary China destinations plus the existing Nanjing map/story fixture; a verified itinerary flow is still a later integration milestone.
 
 The MVP does not include production deployment, authentication, cloud sync, a database, Redis, task queues, real-time GPS navigation, rerouting, or overseas planning. Overseas requests must return the explicit unsupported-region result; do not silently provide an unverified plan.
 
 ## Current repository state
 
-- The repository currently contains the Next.js frontend and an R3F Earth prototype.
-- The FastAPI backend, Baidu Map integration, AI integration, and StoryPlayer are planned modules, not completed features.
+- The repository contains the Next.js frontend, an R3F Earth/map prototype, a TypeScript Node backend under `backend/`, and a basic `/ai` chat page.
+- The backend currently provides a provider-neutral OpenAI-compatible chat endpoint. DeepSeek is the default local configuration; no map facts or verified itinerary are returned yet.
+- Baidu Map integration for live POIs/routes and the map-backed planning orchestration remain planned modules.
 - Do not describe planned capabilities as implemented unless a current source and a completed verification prove them.
 
 ## Architectural rules
@@ -50,11 +51,11 @@ The MVP does not include production deployment, authentication, cloud sync, a da
 
 ## Backend rules
 
-- The backend language is Python and the web framework is FastAPI.
-- Define canonical request and response models with Pydantic. Generate or mechanically derive frontend types from the backend OpenAPI schema instead of maintaining unrelated duplicate contracts.
-- Keep planning orchestration separate from provider Adapters and pure validation/compilation modules.
+- The current backend language is TypeScript and the web layer uses Node's native `http` and `fetch`; keep the provider-neutral contracts in the focused `backend/` modules.
+- The current AI seam accepts OpenAI-compatible Chat Completions providers. DeepSeek is only the default configuration; do not add provider-specific branches until a non-compatible provider is actually required.
+- Keep future planning orchestration separate from provider clients and pure validation/compilation modules.
 - Store provider keys only in ignored local environment files. Never place secrets in browser code, committed files, examples, fixtures, or logs.
-- Retry a transient external provider failure at most once in the synchronous MVP flow. Return a structured error instead of fabricating data.
+- Return a structured error instead of fabricating provider or map data. The current synchronous chat slice does not retry provider failures.
 
 ## Required local verification
 
@@ -66,7 +67,7 @@ npx tsc --noEmit
 npm run build
 ```
 
-For the future backend, run focused Pytest tests first, then the complete backend suite. Browser behavior, live Baidu responses, and live AI responses require their own evidence; a build does not prove them.
+For backend changes, run focused Node tests first, then the complete backend suite with `npm run backend:test` and `npm run backend:typecheck`. Browser behavior, live Baidu responses, and live AI responses require their own evidence; a build does not prove them.
 
 ## Documentation discipline
 

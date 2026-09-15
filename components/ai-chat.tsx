@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { Streamdown } from "streamdown";
+import { useEffect, useRef, useState } from "react";
 
 import { saveActiveTrip } from "@/lib/trip/local-trip-store";
 import type { PlanningResult } from "@/lib/trip/types";
@@ -17,6 +18,11 @@ type ChatResponse = {
   error?: { code?: string; message?: string };
 };
 
+type ChatStreamEvent = {
+  content?: string;
+  error?: { code?: string; message?: string };
+};
+
 type PlanningResponse = Partial<PlanningResult> & {
   error?: { code?: string };
 };
@@ -27,6 +33,47 @@ const planningErrorMessages: Record<string, string> = {
   PLAN_NOT_AVAILABLE: "当前目的地的可播放行程尚未接入",
   MODEL_OUTPUT_INVALID: "AI 返回的行程选择无法通过校验",
 };
+
+async function readChatStream(response: Response, onDelta: (content: string) => void) {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error("AI 未返回流式内容");
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let receivedContent = false;
+
+  const readEvent = (rawEvent: string) => {
+    let eventName = "message";
+    let data = "";
+    for (const line of rawEvent.split(/\r?\n/)) {
+      if (line.startsWith("event:")) eventName = line.slice(6).trim();
+      if (line.startsWith("data:")) data += line.slice(5).trim();
+    }
+    if (!data) return;
+
+    const payload = JSON.parse(data) as ChatStreamEvent;
+    if (eventName === "error" || payload.error) {
+      throw new Error(payload.error?.message || "AI 暂时无法回复，请稍后再试。");
+    }
+    if (eventName === "delta" && payload.content) {
+      receivedContent = true;
+      onDelta(payload.content);
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const events = buffer.split("\n\n");
+    buffer = events.pop() || "";
+    events.forEach(readEvent);
+    if (done) break;
+  }
+  if (buffer) readEvent(buffer);
+  if (!receivedContent) throw new Error("AI 未返回有效内容");
+}
 
 export default function AiChat() {
   const router = useRouter();
@@ -43,6 +90,15 @@ export default function AiChat() {
     && Number.isInteger(dayCount)
     && dayCount >= 1
     && dayCount <= 30;
+  const hasMessages = messages.length > 0;
+  const messagesRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const messagesElement = messagesRef.current;
+    if (messagesElement) {
+      messagesElement.scrollTop = messagesElement.scrollHeight;
+    }
+  }, [messages]);
 
   async function submitMessage(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -59,9 +115,12 @@ export default function AiChat() {
     setPending(true);
 
     try {
-      const response = await fetch(`${backendUrl}/api/chat`, {
+      const response = await fetch(`${backendUrl}/api/chat?stream=true`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          accept: "text/event-stream",
+          "content-type": "application/json",
+        },
         body: JSON.stringify({
           message: content,
           history: nextMessages.slice(0, -1),
@@ -69,13 +128,21 @@ export default function AiChat() {
           days: days ? Number(days) : undefined,
         }),
       });
-      const data = await response.json() as ChatResponse;
-
-      if (!response.ok || !data.message?.content) {
+      if (!response.ok) {
+        const data = await response.json() as ChatResponse;
         throw new Error(data.error?.message || "AI 暂时无法回复，请稍后再试。");
       }
 
-      setMessages((current) => [...current, { role: "assistant" as const, content: data.message!.content }].slice(-20));
+      setMessages((current) => [...current, { role: "assistant" as const, content: "" }].slice(-20));
+      let assistantContent = "";
+      await readChatStream(response, (delta) => {
+        assistantContent += delta;
+        setMessages((current) => {
+          const last = current[current.length - 1];
+          if (last?.role !== "assistant") return current;
+          return [...current.slice(0, -1), { ...last, content: assistantContent }].slice(-20);
+        });
+      });
     } catch {
       setError("暂时无法连接 AI 后端，请确认 backend 已启动后重试。");
     } finally {
@@ -112,7 +179,7 @@ export default function AiChat() {
       }
 
       saveActiveTrip({ plan: data.plan, timeline: data.timeline });
-      router.push("/");
+      router.push("/trip");
     } catch {
       setError("可播放行程生成失败，请稍后再试。");
     } finally {
@@ -121,115 +188,165 @@ export default function AiChat() {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#dbeafe,_transparent_34%),linear-gradient(135deg,_#f8fafc,_#eef2ff)] px-4 py-6 text-slate-950 sm:px-8 sm:py-10">
-      <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-5xl flex-col rounded-[2rem] border border-white/80 bg-white/75 p-5 shadow-2xl shadow-slate-300/40 backdrop-blur sm:p-8">
-        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-6">
-          <div>
-            <Link className="text-sm font-medium text-slate-500 hover:text-slate-900" href="/">
-              ← 返回 Lumivo 地图
-            </Link>
-            <p className="mt-6 text-xs font-semibold uppercase tracking-[0.28em] text-indigo-500">Lumivo AI</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">先聊聊你的下一段旅程</h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
-              告诉我目的地、天数和偏好，先一起把想法整理成可执行的旅行方向。
-            </p>
-          </div>
-          <div className="rounded-2xl bg-indigo-50 px-4 py-3 text-xs leading-5 text-indigo-700">
-            <span className="block font-semibold">中国境内目的地</span>
-            <span>南京只是示例，不限城市</span>
-          </div>
+    <main className="relative h-[100svh] min-h-0 overflow-hidden bg-[#081115] text-[#f6f4ed]">
+      <div aria-hidden="true" className="ai-home-map" />
+      <div aria-hidden="true" className="ai-home-glow" />
+      <div className="relative mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col px-5 py-5 sm:px-8 sm:py-7">
+        <header className="flex items-center justify-between">
+          <Link className="group flex items-center gap-3 text-sm font-semibold tracking-[0.22em] text-white" href="/">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full border border-cyan-200/30 bg-cyan-200/10 text-cyan-100 transition group-hover:border-cyan-100/70">
+              <span className="h-2 w-2 rounded-full bg-cyan-200 shadow-[0_0_16px_#91f5ee]" />
+            </span>
+            LUMIVO
+          </Link>
+          <Link className="rounded-full border border-white/15 bg-white/5 px-4 py-2 text-xs text-slate-300 backdrop-blur transition hover:border-cyan-200/40 hover:text-white" href="/trip">
+            查看地图故事 ↗
+          </Link>
         </header>
 
-        <section className="flex flex-1 flex-col py-6" aria-label="AI 对话">
-          <div className="flex-1 space-y-4" aria-live="polite" role="log">
-            {messages.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 p-6 text-sm leading-6 text-slate-600">
-                例如：&ldquo;我想去成都玩三天，喜欢慢节奏、美食和老街，帮我先安排一个方向。&rdquo;
-              </div>
-            ) : (
-              messages.map((message, index) => (
-                <div className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`} key={`${message.role}-${index}-${message.content.slice(0, 8)}`}>
-                  <div className={`max-w-[min(90%,_42rem)] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm ${message.role === "user" ? "rounded-br-md bg-slate-900 text-white" : "rounded-bl-md bg-indigo-50 text-slate-800"}`}>
-                    {message.content}
+        <section className={`ai-home-page-scrollbar mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col overflow-y-auto ${hasMessages ? "justify-start py-5 sm:py-6" : "justify-center py-12"}`} aria-label="AI 旅行搜索">
+          {!hasMessages && (
+            <div className="mb-8 text-center sm:mb-10">
+              <p className="mb-5 text-[11px] font-semibold uppercase tracking-[0.38em] text-cyan-200/70">AI TRAVEL MAP</p>
+              <h1 className="mx-auto max-w-3xl text-4xl font-medium leading-[1.12] tracking-[-0.04em] text-white sm:text-6xl">
+                问一句，<span className="text-cyan-100">路线就出现。</span>
+              </h1>
+              <p className="mx-auto mt-5 max-w-xl text-sm leading-7 text-slate-300 sm:text-base">
+                说说你想去哪里、喜欢什么，Lumivo 会先和你聊清楚，再把答案变成一张可以走进去的地图。
+              </p>
+            </div>
+          )}
+
+          <div className={`${hasMessages ? "flex min-h-0 flex-1 flex-col" : ""} rounded-[2rem] border border-white/15 bg-[#111d21]/80 p-3 shadow-2xl shadow-black/40 backdrop-blur-xl sm:p-4`}>
+            <div className="flex flex-wrap items-center gap-2 px-2 pb-3 text-xs text-slate-400">
+              <span className="mr-1 h-1.5 w-1.5 rounded-full bg-cyan-200 shadow-[0_0_10px_#91f5ee]" />
+              和 Lumivo 聊聊你的下一段旅程
+              <span className="ml-auto rounded-full border border-white/10 px-2 py-1 text-[10px] tracking-[0.12em] text-slate-500">CHINA · BETA</span>
+            </div>
+
+            {messages.length > 0 && (
+              <div className="ai-home-scrollbar mb-3 max-h-none flex-1 min-h-0 space-y-3 overflow-y-auto rounded-2xl bg-black/10 p-2" aria-live="polite" ref={messagesRef} role="log">
+                {messages.map((message, index) => (
+                  <div className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`} key={`${message.role}-${index}`}>
+                    <div className={`max-w-[min(90%,_42rem)] rounded-2xl px-4 py-3 text-sm leading-6 ${message.role === "user" ? "whitespace-pre-wrap rounded-br-md bg-cyan-100 text-[#0b1a1d]" : "rounded-bl-md bg-white/10 text-slate-100"}`}>
+                      {message.role === "user" ? message.content : (
+                        <Streamdown
+                          isAnimating={pending && index === messages.length - 1}
+                          mode="streaming"
+                        >
+                          {message.content}
+                        </Streamdown>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))
+                ))}
+                {pending && <p className="px-2 text-xs text-cyan-100/70">AI 正在整理路线方向…</p>}
+              </div>
             )}
-            {pending && <p className="text-sm text-slate-500">AI 正在整理路线方向…</p>}
-            {planning && <p className="text-sm text-slate-500">正在生成可播放行程…</p>}
-          </div>
 
-          {error && <p className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700" role="alert">{error}</p>}
-
-          <form className="mt-6 space-y-3" onSubmit={submitMessage}>
-            <div className="grid gap-3 sm:grid-cols-[1fr_9rem]">
-              <label className="text-sm font-medium text-slate-700">
-                目的地（可选）
-                <input
-                  className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal outline-none transition placeholder:text-slate-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100"
+            <form className="space-y-3" onSubmit={submitMessage}>
+              <label className="sr-only" htmlFor="ai-message">你的旅行问题</label>
+              <div className="flex flex-col gap-3 rounded-[1.35rem] border border-white/10 bg-[#0b171a] p-3 sm:flex-row sm:items-end sm:p-4">
+                <textarea
+                  className="min-h-24 flex-1 resize-none bg-transparent px-1 py-1 text-base leading-7 text-white outline-none placeholder:text-slate-500 disabled:text-slate-500"
                   disabled={isBusy}
-                  onChange={(event) => setDestination(event.target.value)}
-                  placeholder="例如：成都、云南、沿海城市"
-                  value={destination}
+                  id="ai-message"
+                  onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      event.currentTarget.form?.requestSubmit();
+                    }
+                  }}
+                  placeholder="例如：南京三天怎么玩？想看博物馆和老街，但别太赶…"
+                  value={draft}
                 />
-              </label>
-              <label className="text-sm font-medium text-slate-700">
-                天数（可选）
-                <input
-                  className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal outline-none transition placeholder:text-slate-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100"
-                  disabled={isBusy}
-                  max={30}
-                  min={1}
-                  onChange={(event) => setDays(event.target.value)}
-                  placeholder="3"
-                  type="number"
-                  value={days}
-                />
-              </label>
-            </div>
-
-            <label className="sr-only" htmlFor="ai-message">你的旅行想法</label>
-            <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-end">
-              <textarea
-                className="min-h-24 flex-1 resize-y bg-transparent px-1 py-1 text-sm leading-6 outline-none placeholder:text-slate-400 disabled:text-slate-400"
-                disabled={isBusy}
-                id="ai-message"
-                onChange={(event) => setDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    event.currentTarget.form?.requestSubmit();
-                  }
-                }}
-                placeholder="说说你想去哪里、喜欢什么，或直接提出问题…"
-                value={draft}
-              />
-              <button
-                className="h-11 rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={isBusy || !draft.trim()}
-                type="submit"
-              >
-                {pending ? "思考中…" : "发送"}
-              </button>
-            </div>
-            {canPlan && (
-              <div className="flex flex-col gap-2 rounded-2xl border border-indigo-100 bg-indigo-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs leading-5 text-indigo-700">
-                  当前本地可播放闭环仅覆盖南京三日 fixture，其他目的地会明确提示尚未接入。
-                </p>
                 <button
-                  className="h-10 shrink-0 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white transition hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={isBusy}
-                  onClick={createPlayablePlan}
-                  type="button"
+                  aria-label="发送问题"
+                  className="flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-cyan-100 px-5 text-sm font-semibold text-[#102126] transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={isBusy || !draft.trim()}
+                  type="submit"
                 >
-                  {planning ? "生成中…" : "生成可播放行程"}
+                  {pending ? "思考中…" : "开始探索"}
+                  <span aria-hidden="true" className="text-lg leading-none">↗</span>
                 </button>
               </div>
-            )}
-            <p className="text-xs leading-5 text-slate-500">AI 回复用于启发和整理；精确地图事实、路线与实时信息仍需后续验证。</p>
-          </form>
+
+              <div className="grid gap-3 sm:grid-cols-[1fr_8rem]">
+                <label className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[11px] text-slate-500">
+                  目的地（可选）
+                  <input
+                    className="mt-1 w-full bg-transparent text-sm text-white outline-none placeholder:text-slate-600"
+                    disabled={isBusy}
+                    onChange={(event) => setDestination(event.target.value)}
+                    placeholder="南京、成都、云南…"
+                    value={destination}
+                  />
+                </label>
+                <label className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[11px] text-slate-500">
+                  天数（可选）
+                  <input
+                    className="ai-home-days mt-1 w-full bg-transparent text-sm text-white outline-none placeholder:text-slate-600"
+                    disabled={isBusy}
+                    max={30}
+                    min={1}
+                    onChange={(event) => setDays(event.target.value)}
+                    placeholder="3"
+                    type="number"
+                    value={days}
+                  />
+                </label>
+              </div>
+            </form>
+
+            <div className="mt-3 flex flex-wrap gap-2 px-1" aria-label="示例问题">
+              {[
+                ["南京三日慢游", "南京三天怎么玩？想看博物馆和老街。", "南京", "3"],
+                ["成都美食与老街", "我想去成都玩三天，重点安排美食和老街。", "成都", "3"],
+                ["苏州园林一日", "苏州一日游，想看园林，也想留点时间喝茶。", "苏州", "1"],
+              ].map(([label, prompt, nextDestination, nextDays]) => (
+                <button
+                  className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-slate-400 transition hover:border-cyan-200/40 hover:bg-cyan-100/5 hover:text-cyan-100 disabled:opacity-40"
+                  disabled={isBusy}
+                  key={label}
+                  onClick={() => {
+                    setDraft(prompt);
+                    setDestination(nextDestination);
+                    setDays(nextDays);
+                  }}
+                  type="button"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {canPlan && (
+            <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-cyan-200/20 bg-cyan-100/10 p-4 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-medium text-cyan-50">准备好把这段对话变成路线了吗？</p>
+                <p className="mt-1 text-xs leading-5 text-cyan-100/60">当前可直接播放的本地示例是南京三日，其他城市会保留 AI 问答结果。</p>
+              </div>
+              <button
+                className="h-10 shrink-0 rounded-xl bg-cyan-100 px-4 text-sm font-semibold text-[#102126] transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={isBusy}
+                onClick={createPlayablePlan}
+                type="button"
+              >
+                {planning ? "生成中…" : "生成可播放行程 ↗"}
+              </button>
+            </div>
+          )}
+
+          {error && <p className="mt-4 rounded-xl border border-rose-300/20 bg-rose-300/10 px-4 py-3 text-sm text-rose-100" role="alert">{error}</p>}
+          <p className="mt-6 text-center text-xs leading-5 text-slate-500">AI 回复用于启发和整理；精确地图事实、路线与实时信息仍需后续验证。</p>
         </section>
+
+        <footer className="flex items-center justify-between border-t border-white/10 pt-4 text-[11px] tracking-[0.12em] text-slate-500">
+          <span>让每个问题，都有一张地图</span>
+          <span>LOCAL-FIRST / 2026</span>
+        </footer>
       </div>
     </main>
   );

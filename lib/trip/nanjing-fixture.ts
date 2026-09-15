@@ -317,7 +317,7 @@ export const nanjingStoryTimeline: StoryTimeline = {
   tripVersion: nanjingTripPlan.version,
   durationMs: closingStartMs + closingDurationMs,
   chapters: [
-    createChapter("chapter-intro", "从地球进入南京", 0, 5200, [
+    createChapter("chapter-intro", "从全景进入南京", 0, 5200, [
       createCommand(
         "command-intro-clear",
         "chapter-intro",

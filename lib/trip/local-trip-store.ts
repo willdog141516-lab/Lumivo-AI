@@ -1,5 +1,5 @@
-import { nanjingPlanningResult } from "./nanjing-fixture.js";
-import type { PlanningResult } from "./types.js";
+import { nanjingPlanningResult } from "@/lib/trip/nanjing-fixture";
+import type { PlanningResult } from "@/lib/trip/types";
 
 export const ACTIVE_TRIP_STORAGE_KEY = "lumivo.active-trip.v1";
 

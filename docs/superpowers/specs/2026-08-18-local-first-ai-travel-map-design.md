@@ -16,7 +16,7 @@ The MVP proves the complete experience locally before any production deployment 
 
 The implemented planning slice is TypeScript Node JSON transport: `POST /api/trips/plan` accepts `TripPlanRequest` and returns `PlanningResult` directly for the validated Nanjing fixture. Browser persistence stores only the fixture id/version marker and reloads the canonical fixture. The FastAPI, Pydantic, and `application/x-ndjson` sections below are historical larger-architecture proposals, not the current implementation contract.
 
-The current local slice exposes `GET /health`, `POST /api/chat`, and `POST /api/trips/plan`, plus a separate Next.js `/ai` page. Free-form chat accepts arbitrary China destinations and returns conversational suggestions. The planning endpoint accepts only `南京`/`南京市` with three days, sends fixture UID/name candidates to the configured OpenAI-compatible provider, and returns the existing `nanjingPlanningResult` only after strict selection validation. It does not claim verified Baidu data for other destinations, and the earlier FastAPI/Pydantic Phase 2 direction remains superseded while the map/provider invariants remain in force.
+The current local slice exposes `GET /health`, `POST /api/chat`, and `POST /api/trips/plan`, with the Next.js AI search page at `/` and `/ai` as a compatible entry point. Playable planning results drill down to `/trip`, which renders the existing MapStage story experience. Free-form chat accepts arbitrary China destinations and returns conversational suggestions. The planning endpoint accepts only `南京`/`南京市` with three days, sends fixture UID/name candidates to the configured OpenAI-compatible provider, and returns the existing `nanjingPlanningResult` only after strict selection validation. It does not claim verified Baidu data for other destinations, and the earlier FastAPI/Pydantic Phase 2 direction remains superseded while the map/provider invariants remain in force.
 
 The broader map-backed architecture below remains future work. Its historical FastAPI, Pydantic, `TripClient`, and NDJSON contracts must not be presented as implemented behavior.
 
@@ -463,7 +463,7 @@ The earlier FastAPI/Pydantic implementation plan is superseded for this prototyp
 
 ### Phase 2A: provider-configurable AI web slice and verified fixture flow (implemented local foundation)
 
-The TypeScript Node chat service, fixture planner, strict UID validation, server-side key boundary, `/ai` action, canonical fixture marker storage, and homepage playback wrapper provide a deterministic local planning foundation. It intentionally stops before Baidu lookup and nationwide verified itinerary generation.
+The TypeScript Node chat service, fixture planner, strict UID validation, server-side key boundary, `/`/`/ai` AI search action, `/trip` route-story page, canonical fixture marker storage, and trip-page playback wrapper provide a deterministic local planning foundation. It intentionally stops before Baidu lookup and nationwide verified itinerary generation.
 
 ### Phase 3: real map facts
 
