@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -10,6 +11,7 @@ import {
 } from "../lib/trip/nanjing-fixture.ts";
 
 const StoryPlayerPanel = storyPlayerPanelModule.default.default;
+const storyPlayerSource = await readFile(new URL("./story-player-panel.tsx", import.meta.url), "utf8");
 
 const playerFor = (status) => ({
   getState: () => ({
@@ -48,4 +50,9 @@ test("paused state keeps the full playback console", () => {
 
   assert.doesNotMatch(html, /紧凑播放控制台/);
   assert.match(html, /上一章/);
+});
+
+test("playback title uses the current plan day count", () => {
+  assert.match(storyPlayerSource, /plan\.days\.length/);
+  assert.doesNotMatch(storyPlayerSource, /三日路线故事/);
 });

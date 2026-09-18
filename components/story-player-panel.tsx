@@ -127,7 +127,7 @@ export default function StoryPlayerPanel({ plan, timeline, player }: StoryPlayer
           <div>
             <p className="text-xs uppercase tracking-[0.24em] text-cyan-200/70">路线故事</p>
             <h2 className="mt-1 text-lg font-semibold tracking-tight">
-              {plan.destination} · 三日路线故事
+                {plan.destination} · {plan.days.length}日路线故事
             </h2>
             <p className="mt-1 text-sm text-slate-300">{chapter?.title}</p>
           </div>
