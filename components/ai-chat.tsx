@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import { Streamdown } from "streamdown";
 import { useEffect, useRef, useState } from "react";
 
+import { TripClientError, tripClient } from "@/lib/trip/client";
 import { saveActiveTrip } from "@/lib/trip/local-trip-store";
-import type { PlanningResult } from "@/lib/trip/types";
 
 type UiMessage = {
   role: "user" | "assistant";
@@ -23,15 +23,21 @@ type ChatStreamEvent = {
   error?: { code?: string; message?: string };
 };
 
-type PlanningResponse = Partial<PlanningResult> & {
-  error?: { code?: string };
-};
-
 const backendUrl = process.env.NEXT_PUBLIC_AI_BACKEND_URL || "http://localhost:8000";
 const planningErrorMessages: Record<string, string> = {
   UNSUPPORTED_REGION: "暂不支持该地区，等待后续开发",
   PLAN_NOT_AVAILABLE: "当前目的地的可播放行程尚未接入",
+  MAP_PROVIDER_ERROR: "百度地图服务暂时不可用，请检查地图配置后重试",
+  MAP_PROVIDER_TIMEOUT: "百度地图服务响应超时，请稍后重试",
   MODEL_OUTPUT_INVALID: "AI 返回的行程选择无法通过校验",
+};
+const planningProgressMessages: Record<string, string> = {
+  "planning.started": "正在启动规划…",
+  "destination.validated": "正在校验目的地…",
+  "pois.found": "正在整理真实地点…",
+  "routes.calculated": "正在计算真实路线…",
+  "plan.validated": "正在校验行程…",
+  "timeline.ready": "正在准备地图故事…",
 };
 
 async function readChatStream(response: Response, onDelta: (content: string) => void) {
@@ -84,6 +90,7 @@ export default function AiChat() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [planning, setPlanning] = useState(false);
+  const [planningStatus, setPlanningStatus] = useState("准备生成可播放行程");
   const isBusy = pending || planning;
   const dayCount = Number(days);
   const canPlan = destination.trim().length > 0
@@ -92,6 +99,7 @@ export default function AiChat() {
     && dayCount <= 30;
   const hasMessages = messages.length > 0;
   const messagesRef = useRef<HTMLDivElement>(null);
+  const planningAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const messagesElement = messagesRef.current;
@@ -99,6 +107,10 @@ export default function AiChat() {
       messagesElement.scrollTop = messagesElement.scrollHeight;
     }
   }, [messages]);
+
+  useEffect(() => () => {
+    planningAbortRef.current?.abort();
+  }, []);
 
   async function submitMessage(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -161,29 +173,47 @@ export default function AiChat() {
 
     setError(null);
     setPlanning(true);
+    setPlanningStatus(planningProgressMessages["planning.started"]);
+    const controller = new AbortController();
+    planningAbortRef.current = controller;
     try {
-      const response = await fetch(`${backendUrl}/api/trips/plan`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
+      const result = await tripClient.planTrip({
           message: planMessage,
           destination: normalizedDestination,
           days: dayCount,
-        }),
-      });
-      const data = await response.json() as PlanningResponse;
-
-      if (!response.ok || !data.plan || !data.timeline) {
-        setError(planningErrorMessages[data.error?.code ?? ""] ?? "可播放行程生成失败，请稍后再试。");
+        }, {
+          signal: controller.signal,
+          onProgress: (event) => {
+            setPlanningStatus(
+              planningProgressMessages[event.event] ?? "正在生成可播放行程…",
+            );
+          },
+        });
+      if (controller.signal.aborted) {
         return;
       }
 
-      saveActiveTrip({ plan: data.plan, timeline: data.timeline });
+      saveActiveTrip(result);
       router.push("/trip");
-    } catch {
-      setError("可播放行程生成失败，请稍后再试。");
+    } catch (caught) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      if (caught instanceof TripClientError) {
+        setError(
+          planningErrorMessages[caught.code]
+            ?? caught.message
+            ?? "可播放行程生成失败，请稍后再试。",
+        );
+      } else {
+        setError("可播放行程生成失败，请稍后再试。");
+      }
     } finally {
-      setPlanning(false);
+      if (planningAbortRef.current === controller) {
+        planningAbortRef.current = null;
+        setPlanning(false);
+        setPlanningStatus("准备生成可播放行程");
+      }
     }
   }
 
@@ -334,9 +364,15 @@ export default function AiChat() {
                 onClick={createPlayablePlan}
                 type="button"
               >
-                {planning ? "生成中…" : "生成可播放行程 ↗"}
+                {planning ? planningStatus : "生成可播放行程 ↗"}
               </button>
             </div>
+          )}
+
+          {planning && (
+            <p aria-live="polite" className="mt-3 text-center text-xs text-cyan-100/70">
+              {planningStatus}
+            </p>
           )}
 
           {error && <p className="mt-4 rounded-xl border border-rose-300/20 bg-rose-300/10 px-4 py-3 text-sm text-rose-100" role="alert">{error}</p>}
