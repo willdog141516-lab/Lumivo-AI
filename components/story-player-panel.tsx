@@ -6,6 +6,10 @@ import {
   type StoryPlayer,
   type StoryPlayerState,
 } from "@/lib/story-player/player";
+import {
+  toRealPlaybackDuration,
+  toTimelineDelta,
+} from "@/lib/story-player/playback-rate";
 import type { StoryTimeline, TripPlan } from "@/lib/trip/types";
 
 type StoryPlayerPanelProps = {
@@ -41,7 +45,7 @@ export default function StoryPlayerPanel({ plan, timeline, player }: StoryPlayer
     let previousTime = performance.now();
     const interval = window.setInterval(() => {
       const now = performance.now();
-      player.advance(now - previousTime);
+      player.advance(toTimelineDelta(now - previousTime));
       previousTime = now;
     }, 100);
 
@@ -52,8 +56,8 @@ export default function StoryPlayerPanel({ plan, timeline, player }: StoryPlayer
   const progress = timeline.durationMs
     ? Math.min(state.elapsedMs / timeline.durationMs, 1)
     : 0;
-  const elapsedSeconds = Math.floor(state.elapsedMs / 1000);
-  const totalSeconds = Math.floor(timeline.durationMs / 1000);
+  const elapsedSeconds = Math.floor(toRealPlaybackDuration(state.elapsedMs) / 1000);
+  const totalSeconds = Math.floor(toRealPlaybackDuration(timeline.durationMs) / 1000);
   const formatTime = (seconds: number) =>
     `${Math.floor(seconds / 60).toString().padStart(2, "0")}:${(seconds % 60)
       .toString()
@@ -73,10 +77,10 @@ export default function StoryPlayerPanel({ plan, timeline, player }: StoryPlayer
 
   if (state.status === "playing" && !isExpanded) {
     return (
-      <section className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-3 sm:p-4">
+      <section className="story-player-panel pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-3 sm:p-4">
         <div
           aria-label="紧凑播放控制台"
-          className="pointer-events-auto flex w-full max-w-2xl items-center gap-3 rounded-xl border border-cyan-200/20 bg-slate-950/85 px-3 py-2.5 text-slate-100 shadow-2xl shadow-cyan-950/40 backdrop-blur-md sm:gap-4 sm:px-4"
+          className="pointer-events-auto flex w-full max-w-2xl items-center gap-3 rounded-xl border border-cyan-200/20 bg-slate-950/85 px-3 py-2.5 text-slate-100 shadow-2xl shadow-cyan-950/40 sm:gap-4 sm:px-4"
         >
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between gap-2">
@@ -121,13 +125,13 @@ export default function StoryPlayerPanel({ plan, timeline, player }: StoryPlayer
   }
 
   return (
-    <section className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-4 sm:p-6">
-      <div className="pointer-events-auto w-full max-w-5xl rounded-2xl border border-cyan-200/20 bg-slate-950/85 p-4 text-slate-100 shadow-2xl shadow-cyan-950/40 backdrop-blur-md sm:p-5">
+    <section className="story-player-panel pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-4 sm:p-6">
+      <div className="pointer-events-auto w-full max-w-5xl rounded-2xl border border-cyan-200/20 bg-slate-950/85 p-4 text-slate-100 shadow-2xl shadow-cyan-950/40 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs uppercase tracking-[0.24em] text-cyan-200/70">路线故事</p>
             <h2 className="mt-1 text-lg font-semibold tracking-tight">
-                {plan.destination} · {plan.days.length}日路线故事
+              {plan.destination} · {plan.days.length}日路线故事
             </h2>
             <p className="mt-1 text-sm text-slate-300">{chapter?.title}</p>
           </div>

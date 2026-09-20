@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
+
+import ThemeProvider from "@/components/theme-provider";
+
 import "./globals.css";
 import "streamdown/styles.css";
 
@@ -22,9 +26,19 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="zh-CN"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
+      suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <head>
+        <link rel="stylesheet" href="https://at.alicdn.com/t/c/font_5234803_avfswqha8t.css" />
+      </head>
+      <body className="min-h-full flex flex-col">
+        <Script
+          src="https://at.alicdn.com/t/c/font_5234803_avfswqha8t.js"
+          strategy="beforeInteractive"
+        />
+        <ThemeProvider>{children}</ThemeProvider>
+      </body>
     </html>
   );
 }

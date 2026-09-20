@@ -5,6 +5,11 @@ export type BeforeRenderHost = {
   removeBeforeRenderListener: (listener: () => void) => void;
 };
 
+export type AnimationLoopHost = {
+  rendering: { enableAnimationLoop: boolean };
+  requestRender: () => void;
+};
+
 type ExternalRootConfig = Pick<
   RenderProps<HTMLCanvasElement>,
   "gl" | "scene" | "camera" | "frameloop" | "events"
@@ -42,3 +47,10 @@ export function connectExternalRenderLoop<State>(
     host.removeBeforeRenderListener(onBeforeRender);
   };
 }
+
+export function syncAnimationLoop(host: AnimationLoopHost, isPlaying: boolean) {
+  host.rendering.enableAnimationLoop = isPlaying;
+  host.requestRender();
+}
+
+export const limitMapPixelRatio = (value: number) => Math.min(value, 1.5);

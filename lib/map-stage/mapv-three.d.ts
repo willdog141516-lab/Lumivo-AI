@@ -3,6 +3,7 @@ declare module "@baidumap/mapv-three" {
     OrthographicCamera,
     PerspectiveCamera,
     Scene,
+    Vector3,
     WebGLRenderer,
   } from "three";
 
@@ -26,7 +27,10 @@ declare module "@baidumap/mapv-three" {
         cancelFlight?: () => void;
       };
       projectArrayCoordinate(input: number[], output: number[]): number[];
+      getPixelSizeAtWorldPosition(worldPosition: Vector3): number;
       setProjection(projection: string): void;
+      setCenter(target: number[]): void;
+      setZoom(zoom: number): void;
       flyTo(
         target: number[],
         options?: {

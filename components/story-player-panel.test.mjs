@@ -37,6 +37,7 @@ test("playing state renders the compact playback console", () => {
   assert.match(html, /紧凑播放控制台/);
   assert.doesNotMatch(html, /上一章/);
   assert.match(html, /展开/);
+  assert.doesNotMatch(html, /backdrop-blur/);
 });
 
 test("paused state keeps the full playback console", () => {
@@ -50,6 +51,7 @@ test("paused state keeps the full playback console", () => {
 
   assert.doesNotMatch(html, /紧凑播放控制台/);
   assert.match(html, /上一章/);
+  assert.doesNotMatch(html, /backdrop-blur/);
 });
 
 test("playback title uses the current plan day count", () => {
