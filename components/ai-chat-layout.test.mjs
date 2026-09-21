@@ -34,8 +34,8 @@ test("keeps quick prompts while giving the removed options row to chat", () => {
   assert.doesNotMatch(componentSource, /<details/);
   assert.doesNotMatch(componentSource, /planOptionsOpen/);
   assert.match(componentSource, /ai-home-composer[\s\S]*ai-home-aux-controls/);
-  assert.match(componentSource, /setDestination\(nextDestination\)/);
-  assert.match(componentSource, /setDays\(nextDays\)/);
+  assert.doesNotMatch(componentSource, /setDestination\(nextDestination\)/);
+  assert.doesNotMatch(componentSource, /setDays\(nextDays\)/);
   assert.doesNotMatch(stylesSource, /\.ai-home-chat-card-active\s*\{[\s\S]*min-height: 90%/);
   assert.doesNotMatch(stylesSource, /\.ai-home-chat-card-active \.ai-home-message-log[\s\S]*min-height: 60%/);
   assert.match(stylesSource, /\.ai-home-composer-active textarea[\s\S]*min-height: 3rem/);
@@ -47,8 +47,21 @@ test("keeps quick prompts while giving the removed options row to chat", () => {
 test("keeps the itinerary action inside the active chat card", () => {
   assert.match(
     componentSource,
-    /ai-home-chat-card-active[\s\S]*\{canPlan && \([\s\S]*ai-home-plan-cta/,
+    /ai-home-chat-card-active[\s\S]*\{hasMessages && \([\s\S]*ai-home-plan-cta/,
   );
+});
+
+test("sends the complete dialogue to playable planning", () => {
+  assert.match(componentSource, /history: messages/);
+  assert.match(componentSource, /if \(isBusy \|\| !hasMessages\)/);
+  assert.doesNotMatch(componentSource, /const canPlan/);
+});
+
+test("keeps the generated plan in the dialogue before opening the map story", () => {
+  assert.match(componentSource, /transportSummaryMarkdown\(result\.plan\)/);
+  assert.match(componentSource, /const \[hasPlayablePlan, setHasPlayablePlan\] = useState\(false\)/);
+  assert.match(componentSource, /hasPlayablePlan \? "查看地图故事 ↗"/);
+  assert.match(componentSource, /onClick=\{hasPlayablePlan \? \(\) => router\.push\("\/trip"\) : createPlayablePlan\}/);
 });
 
 test("gives released composer spacing to the conversation log", () => {

@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { TripClientError, tripClient } from "@/lib/trip/client";
 import { saveActiveTrip } from "@/lib/trip/local-trip-store";
+import { transportSummaryMarkdown } from "@/lib/trip/transport";
 
 type UiMessage = {
   role: "user" | "assistant";
@@ -83,20 +84,14 @@ async function readChatStream(response: Response, onDelta: (content: string) => 
 
 export default function AiChat() {
   const router = useRouter();
-  const [destination, setDestination] = useState("");
-  const [days, setDays] = useState("");
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [planning, setPlanning] = useState(false);
+  const [hasPlayablePlan, setHasPlayablePlan] = useState(false);
   const [planningStatus, setPlanningStatus] = useState("准备生成可播放行程");
   const isBusy = pending || planning;
-  const dayCount = Number(days);
-  const canPlan = destination.trim().length > 0
-    && Number.isInteger(dayCount)
-    && dayCount >= 1
-    && dayCount <= 30;
   const hasMessages = messages.length > 0;
   const messagesRef = useRef<HTMLDivElement>(null);
   const planningAbortRef = useRef<AbortController | null>(null);
@@ -124,6 +119,7 @@ export default function AiChat() {
     setMessages(nextMessages);
     setDraft("");
     setError(null);
+    setHasPlayablePlan(false);
     setPending(true);
 
     try {
@@ -136,8 +132,6 @@ export default function AiChat() {
         body: JSON.stringify({
           message: content,
           history: nextMessages.slice(0, -1),
-          destination: destination.trim() || undefined,
-          days: days ? Number(days) : undefined,
         }),
       });
       if (!response.ok) {
@@ -163,8 +157,7 @@ export default function AiChat() {
   }
 
   async function createPlayablePlan() {
-    const normalizedDestination = destination.trim();
-    if (isBusy || !normalizedDestination || !Number.isInteger(dayCount) || dayCount < 1 || dayCount > 30) {
+    if (isBusy || !hasMessages) {
       return;
     }
 
@@ -179,8 +172,7 @@ export default function AiChat() {
     try {
       const result = await tripClient.planTrip({
           message: planMessage,
-          destination: normalizedDestination,
-          days: dayCount,
+          history: messages,
         }, {
           signal: controller.signal,
           onProgress: (event) => {
@@ -194,7 +186,11 @@ export default function AiChat() {
       }
 
       saveActiveTrip(result);
-      router.push("/trip");
+      setMessages((current) => [
+        ...current,
+        { role: "assistant" as const, content: transportSummaryMarkdown(result.plan) },
+      ].slice(-20));
+      setHasPlayablePlan(true);
     } catch (caught) {
       if (controller.signal.aborted) {
         return;
@@ -305,19 +301,15 @@ export default function AiChat() {
 
               <div className="ai-home-aux-controls flex flex-wrap gap-2 px-1" aria-label="示例问题">
                 {[
-                  ["南京三日慢游", "南京三天怎么玩？想看博物馆和老街。", "南京", "3"],
-                  ["成都美食与老街", "我想去成都玩三天，重点安排美食和老街。", "成都", "3"],
-                  ["苏州园林一日", "苏州一日游，想看园林，也想留点时间喝茶。", "苏州", "1"],
-                ].map(([label, prompt, nextDestination, nextDays]) => (
+                  ["南京三日慢游", "南京三天怎么玩？想看博物馆和老街。"],
+                  ["成都美食与老街", "我想去成都玩三天，重点安排美食和老街。"],
+                  ["苏州园林一日", "苏州一日游，想看园林，也想留点时间喝茶。"],
+                ].map(([label, prompt]) => (
                   <button
                     className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-slate-400 transition hover:border-cyan-200/40 hover:bg-cyan-100/5 hover:text-cyan-100 disabled:opacity-40"
                     disabled={isBusy}
                     key={label}
-                    onClick={() => {
-                      setDraft(prompt);
-                      setDestination(nextDestination);
-                      setDays(nextDays);
-                    }}
+                    onClick={() => setDraft(prompt)}
                     type="button"
                   >
                     {label}
@@ -326,19 +318,19 @@ export default function AiChat() {
               </div>
             </form>
 
-            {canPlan && (
+            {hasMessages && (
               <div className="ai-home-plan-cta mt-4 flex flex-col gap-3 rounded-2xl border border-cyan-200/20 bg-cyan-100/10 p-4 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-sm font-medium text-cyan-50">准备好把这段对话变成路线了吗？</p>
-                <p className="mt-1 text-xs leading-5 text-cyan-100/60">南京三日可离线演示；后端启用真实地图规划后，可生成当前目的地的可播放行程。</p>
+                <p className="mt-1 text-xs leading-5 text-cyan-100/60">会从对话提取目的地和天数；启用真实地图规划后，可生成中国境内目的地的可播放行程。</p>
               </div>
               <button
                 className="h-10 shrink-0 rounded-xl bg-cyan-100 px-4 text-sm font-semibold text-[#102126] transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={isBusy}
-                onClick={createPlayablePlan}
+                onClick={hasPlayablePlan ? () => router.push("/trip") : createPlayablePlan}
                 type="button"
               >
-                    {planning ? planningStatus : "生成可播放行程 ↗"}
+                    {planning ? planningStatus : hasPlayablePlan ? "查看地图故事 ↗" : "生成可播放行程 ↗"}
                   </button>
               </div>
             )}

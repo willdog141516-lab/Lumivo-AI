@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { Select } from "@base-ui/react/select";
+import { Check, ChevronDown } from "lucide-react";
 
 import { TripClientError, tripClient } from "@/lib/trip/client";
 import { saveActiveTrip } from "@/lib/trip/local-trip-store";
@@ -29,6 +31,10 @@ export default function TripRevisionPanel({
   const [status, setStatus] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const dayItems = result.plan.days.map((item) => ({
+    label: `第 ${item.day} 天`,
+    value: String(item.day),
+  }));
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -70,7 +76,7 @@ export default function TripRevisionPanel({
 
   return (
     <aside className="pointer-events-none absolute left-5 top-20 z-30 w-[min(22rem,calc(100%-2.5rem))] sm:left-8">
-      <details className="pointer-events-auto rounded-2xl border border-cyan-200/20 bg-slate-950/85 p-4 text-slate-100 shadow-2xl shadow-cyan-950/30 backdrop-blur">
+      <details className="trip-revision-panel pointer-events-auto rounded-2xl border border-cyan-200/20 bg-slate-950/85 p-4 text-slate-100 shadow-2xl shadow-cyan-950/30 backdrop-blur">
         <summary className="cursor-pointer list-none text-sm font-medium text-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200">
           调整某一天的路线
         </summary>
@@ -78,32 +84,68 @@ export default function TripRevisionPanel({
           <label className="block text-xs text-slate-400" htmlFor="trip-revision-day">
             调整天数
           </label>
-          <select
-            className="w-full rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-sm text-white outline-none focus-visible:ring-2 focus-visible:ring-cyan-200"
+          <Select.Root
             disabled={isSubmitting}
-            id="trip-revision-day"
-            onChange={(event) => setDay(event.target.value)}
+            items={dayItems}
+            onValueChange={(value) => {
+              if (typeof value === "string") {
+                setDay(value);
+              }
+            }}
             value={day}
           >
-            {result.plan.days.map((item) => (
-              <option className="bg-slate-900" key={item.day} value={item.day}>
-                第 {item.day} 天
-              </option>
-            ))}
-          </select>
+            <Select.Trigger
+              aria-label="调整天数"
+              className="trip-revision-select-trigger"
+              id="trip-revision-day"
+            >
+              <Select.Value />
+              <Select.Icon>
+                <ChevronDown aria-hidden="true" size={16} />
+              </Select.Icon>
+            </Select.Trigger>
+            <Select.Portal>
+              <Select.Positioner
+                alignItemWithTrigger={false}
+                className="trip-revision-select-positioner"
+                sideOffset={4}
+              >
+                <Select.Popup className="trip-revision-select-popup">
+                  <Select.List className="trip-revision-select-list">
+                    {dayItems.map((item) => (
+                      <Select.Item
+                        className="trip-revision-select-item"
+                        key={item.value}
+                        value={item.value}
+                      >
+                        <Select.ItemIndicator
+                          className="trip-revision-select-indicator"
+                          keepMounted
+                        >
+                          <Check aria-hidden="true" size={14} />
+                        </Select.ItemIndicator>
+                        <Select.ItemText>{item.label}</Select.ItemText>
+                      </Select.Item>
+                    ))}
+                  </Select.List>
+                </Select.Popup>
+              </Select.Positioner>
+            </Select.Portal>
+          </Select.Root>
           <label className="block text-xs text-slate-400" htmlFor="trip-revision-instruction">
             想怎么调整
           </label>
           <textarea
-            className="min-h-20 w-full resize-y rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus-visible:ring-2 focus-visible:ring-cyan-200"
+            className="h-[140px] w-full resize-none overflow-y-auto rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus-visible:ring-2 focus-visible:ring-cyan-200"
             disabled={isSubmitting}
             id="trip-revision-instruction"
+            maxLength={200}
             onChange={(event) => setInstruction(event.target.value)}
             placeholder="例如：增加一个博物馆，节奏慢一点"
             value={instruction}
           />
           <button
-            className="w-full rounded-lg bg-cyan-100 px-3 py-2 text-sm font-semibold text-slate-900 transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
+            className="trip-revision-submit w-full rounded-lg bg-cyan-100 px-3 py-2 text-sm font-semibold text-slate-900 transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={isSubmitting || !instruction.trim()}
             type="submit"
           >

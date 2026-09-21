@@ -75,7 +75,10 @@ export function createMapStageRuntime(plan: TripPlan) {
           if (routeLegIds.has(command.payload.routeLegId)) {
             state = {
               ...state,
-              visibleRouteLegIds: [command.payload.routeLegId],
+              visibleRouteLegIds: addUnique(
+                state.visibleRouteLegIds,
+                command.payload.routeLegId,
+              ),
               activeRouteLegId: command.payload.routeLegId,
             };
           }
@@ -84,7 +87,10 @@ export function createMapStageRuntime(plan: TripPlan) {
           if (routeLegIds.has(command.payload.routeLegId)) {
             state = {
               ...state,
-              visibleRouteLegIds: [command.payload.routeLegId],
+              visibleRouteLegIds: addUnique(
+                state.visibleRouteLegIds,
+                command.payload.routeLegId,
+              ),
               activeRouteLegId: command.payload.routeLegId,
             };
           }

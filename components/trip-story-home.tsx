@@ -21,7 +21,11 @@ export default function TripStoryHome({ fallback }: { fallback: PlanningResult }
 
   return (
     <div className="relative min-h-[100svh]">
-      <TripStoryExperience plan={activeResult.plan} timeline={activeResult.timeline} />
+      <TripStoryExperience
+        key={`${activeResult.plan.id}:${activeResult.plan.version}`}
+        plan={activeResult.plan}
+        timeline={activeResult.timeline}
+      />
       <TripRevisionPanel
         onRevised={(nextResult) => setCurrentResult(nextResult)}
         result={activeResult}

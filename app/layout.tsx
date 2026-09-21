@@ -37,6 +37,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           src="https://at.alicdn.com/t/c/font_5234803_avfswqha8t.js"
           strategy="beforeInteractive"
         />
+        <Script
+          src="https://at.alicdn.com/t/c/font_5234803_i6mmxewqpy.js"
+          strategy="beforeInteractive"
+        />
         <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>

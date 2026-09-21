@@ -11,6 +11,7 @@ import {
   toTimelineDelta,
 } from "@/lib/story-player/playback-rate";
 import type { StoryTimeline, TripPlan } from "@/lib/trip/types";
+import { transportSummaryForDay } from "@/lib/trip/transport";
 
 type StoryPlayerPanelProps = {
   plan: TripPlan;
@@ -58,6 +59,10 @@ export default function StoryPlayerPanel({ plan, timeline, player }: StoryPlayer
     : 0;
   const elapsedSeconds = Math.floor(toRealPlaybackDuration(state.elapsedMs) / 1000);
   const totalSeconds = Math.floor(toRealPlaybackDuration(timeline.durationMs) / 1000);
+  const transportDays = plan.days.map((day) => ({
+    day,
+    legs: transportSummaryForDay(day),
+  })).filter(({ legs }) => legs.length > 0);
   const formatTime = (seconds: number) =>
     `${Math.floor(seconds / 60).toString().padStart(2, "0")}:${(seconds % 60)
       .toString()
@@ -168,6 +173,19 @@ export default function StoryPlayerPanel({ plan, timeline, player }: StoryPlayer
         <div aria-live="polite" className="mt-3 min-h-12 rounded-xl bg-white/5 px-3 py-2 text-sm leading-6 text-slate-200">
           {state.activeNarration?.text ?? "准备进入本章路线，点击播放开始。"}
         </div>
+
+        {transportDays.length > 0 && (
+          <div className="mt-3" aria-label="交通方式">
+            <p className="text-xs font-medium text-cyan-100">交通方式</p>
+            <ul className="mt-2 flex gap-2 overflow-x-auto pb-1">
+              {transportDays.map(({ day, legs }) => (
+                <li className="max-w-lg truncate rounded-lg bg-white/5 px-2.5 py-2 text-xs text-slate-300" key={day.day}>
+                  第{day.day}天 {legs[0].fromName} → {legs[0].toName} · {legs[0].label}{legs.length > 1 ? `（等 ${legs.length - 1} 段）` : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <button

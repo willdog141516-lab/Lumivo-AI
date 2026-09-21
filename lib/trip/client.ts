@@ -3,10 +3,16 @@ import type {
   TripPlan,
 } from "@/lib/trip/types";
 
+export type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 export type PlanInput = {
   message: string;
-  destination: string;
-  days: number;
+  history?: ChatMessage[];
+  destination?: string;
+  days?: number;
 };
 
 export type RevisionInput = {

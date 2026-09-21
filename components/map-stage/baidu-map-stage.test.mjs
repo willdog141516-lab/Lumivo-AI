@@ -233,6 +233,7 @@ test("flat projection switches cancel the active camera flight", () => {
 test("story POI markers use the provided multicolor dingwei icon", () => {
   assert.match(layoutSource, /font_5234803_avfswqha8t\.css/);
   assert.match(layoutSource, /font_5234803_avfswqha8t\.js/);
+  assert.match(layoutSource, /font_5234803_i6mmxewqpy\.js/);
   assert.match(source, /className="icon-dingwei map-story-poi-marker-icon"/);
   assert.match(source, /href="#icon-dingwei"/);
   assert.doesNotMatch(source, /iconfont icon-dingwei/);
