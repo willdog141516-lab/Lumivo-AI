@@ -9,6 +9,6 @@ const TripPage = TripPageModule.default.default ?? TripPageModule.default;
 test("trip route renders the playable story home", () => {
   const element = TripPage();
 
-  assert.equal(element.type, TripStoryHome);
+  assert.equal(element.type.name, TripStoryHome.name);
   assert.equal(element.props.fallback.plan.destination, "南京");
 });

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import BaiduMapStage, {
@@ -54,7 +55,14 @@ export default function TripStoryExperience({
   }, [pendingCommands, stageReady]);
 
   return (
-    <main className="relative min-h-[100svh]">
+    <main className="trip-story-experience relative min-h-[100svh]">
+      <Link
+        aria-label="返回 AI 问答页面"
+        className="absolute left-5 top-5 z-30 rounded-full border border-white/15 bg-slate-950/75 px-4 py-2 text-sm text-slate-100 shadow-lg shadow-slate-950/20 motion-safe:transition hover:border-cyan-200/40 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 sm:left-8 sm:top-8"
+        href="/ai"
+      >
+        ← 返回问答
+      </Link>
       <BaiduMapStage
         ref={stageRef}
         isPlaying={isPlaying}

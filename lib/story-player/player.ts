@@ -132,7 +132,13 @@ export function createStoryPlayer(onCommand?: CommandListener): StoryPlayer {
     const elapsedMs = timeline.chapters[chapterIndex].startMs;
 
     state = { ...state, status: "paused" };
-    emitCommandsBetween(-1, elapsedMs);
+    const resetCommand = commands.findLast(
+      (command) => command.type === "stage.clear" && command.startMs <= elapsedMs,
+    );
+    if (resetCommand) {
+      onCommand?.(resetCommand);
+    }
+    emitCommandsBetween(elapsedMs - 1, elapsedMs);
     updatePosition(elapsedMs);
     notify();
   };

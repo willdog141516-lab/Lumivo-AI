@@ -1,5 +1,6 @@
 "use client";
 
+import { Html } from "@react-three/drei";
 import { advance, createRoot, extend, useFrame } from "@react-three/fiber";
 import {
   forwardRef,
@@ -16,17 +17,24 @@ import * as THREE from "three";
 import {
   connectExternalRenderLoop,
   createExternalRootConfig,
+  limitMapPixelRatio,
+  syncAnimationLoop,
+  type AnimationLoopHost,
 } from "@/lib/map-stage/engine-bridge";
 import {
   createMapStageRuntime,
   type MapStageState,
 } from "@/lib/map-stage/command-runtime";
-import {
-  getRingRevealDrawCount,
-  isRingRevealComplete,
-  RING_SEGMENTS,
-} from "@/lib/map-stage/ring-reveal";
 import { createProjectedRoutePositions } from "@/lib/map-stage/route-geometry";
+import {
+  createRouteSampler,
+  getRouteAnimationProgress,
+  type RouteAnimationPhase,
+} from "@/lib/map-stage/route-animation";
+import {
+  toRealPlaybackDuration,
+  toRealRouteDuration,
+} from "@/lib/story-player/playback-rate";
 import { nanjingTripPlan } from "@/lib/trip/nanjing-fixture";
 import type {
   GeoPoint,
@@ -46,19 +54,14 @@ extend({
   Group: THREE.Group,
   Mesh: THREE.Mesh,
   MeshBasicMaterial: THREE.MeshBasicMaterial,
-  RingGeometry: THREE.RingGeometry,
-  SphereGeometry: THREE.SphereGeometry,
 });
 
 type MapEngine = InstanceType<(typeof import("@baidumap/mapv-three"))["Engine"]>;
 type MapProjector = MapEngine["map"];
-type MapStageRuntime = ReturnType<typeof createMapStageRuntime>;
 type StageStatus = "loading" | "ready" | "error";
 type RouteAnimation = {
   routeLegId: string;
-  mode: "draw" | "follow";
-  startedAt: number;
-  durationMs: number;
+  draw: RouteAnimationPhase;
 };
 
 export type MapStageHandle = {
@@ -74,16 +77,18 @@ type BaiduMapStageProps = {
 type StoryOverlayProps = {
   plan: TripPlan;
   map: MapProjector;
-  runtime: MapStageRuntime;
+  stateRef: MutableRefObject<MapStageState>;
   animationRef: MutableRefObject<RouteAnimation | null>;
   reducedMotion: MutableRefObject<boolean>;
 };
 
 type PoiMarkerProps = {
+  animationRef: MutableRefObject<RouteAnimation | null>;
   poi: VerifiedPoi;
   map: MapProjector;
-  stateRef: MutableRefObject<MapStageState>;
   reducedMotion: MutableRefObject<boolean>;
+  routesById: ReadonlyMap<string, RouteLeg>;
+  stateRef: MutableRefObject<MapStageState>;
 };
 
 type RouteLineProps = {
@@ -96,44 +101,59 @@ type RouteLineProps = {
 
 const toMapCoordinate = (point: GeoPoint) => [point.lng, point.lat, 0];
 
-const rangeForZoom = (zoom: number) =>
+export const rangeForZoom = (zoom: number) =>
   // ponytail: fixture zoom-to-range heuristic; replace with provider zoom mapping when live camera behavior needs calibration.
-  Math.max(800, 140000 / 2 ** (zoom - 10));
+  Math.max(80, 140000 / 2 ** (zoom - 10));
 
-const animationProgress = (
-  animation: RouteAnimation | null,
-  routeLegId: string,
-  mode: RouteAnimation["mode"],
-  reducedMotion: boolean,
-) => {
-  if (
-    !animation ||
-    animation.routeLegId !== routeLegId ||
-    animation.mode !== mode
-  ) {
-    return 1;
-  }
+export const zoomForRouteDistance = (distanceMeters: number) => {
+  const distance = Number.isFinite(distanceMeters) && distanceMeters >= 0
+    ? Math.max(0.001, distanceMeters)
+    : 500;
 
-  if (reducedMotion) {
-    return 1;
-  }
-
-  return Math.min(
-    1,
-    Math.max(0, (performance.now() - animation.startedAt) / animation.durationMs),
-  );
+  return Math.min(30, Math.max(4, 16 - Math.log2(distance / 500)));
 };
 
-function PoiMarker({ poi, map, stateRef, reducedMotion }: PoiMarkerProps) {
+function PoiMarker({
+  animationRef,
+  poi,
+  map,
+  reducedMotion,
+  routesById,
+  stateRef,
+}: PoiMarkerProps) {
   const markerRef = useRef<THREE.Group>(null);
-  const ringRef = useRef<THREE.Mesh>(null);
-  const wasVisibleRef = useRef(false);
-  const ringRevealStartedAtRef = useRef(0);
+  const markerHtmlRef = useRef<HTMLDivElement>(null);
+  const markerIconsRef = useRef<HTMLSpanElement>(null);
+  const markerIconRef = useRef<SVGSVGElement>(null);
 
-  useFrame((_, delta) => {
+  useFrame(() => {
     const marker = markerRef.current;
 
     if (!marker) {
+      return;
+    }
+
+    const stageState = stateRef.current;
+    const active = stageState.activePoiUid === poi.uid;
+    const routeAnimation = animationRef.current;
+    const route = routeAnimation ? routesById.get(routeAnimation.routeLegId) : undefined;
+    const isRouteDestination = route?.toPoiUid === poi.uid;
+    const drawProgress = isRouteDestination && routeAnimation
+      ? getRouteAnimationProgress(routeAnimation.draw, performance.now(), reducedMotion.current)
+      : 1;
+    const isPreview = isRouteDestination && drawProgress > 0 && drawProgress < 1;
+    const visible =
+      stageState.visiblePoiUids.includes(poi.uid) ||
+      (isRouteDestination && drawProgress > 0);
+
+    if (markerHtmlRef.current) {
+      markerHtmlRef.current.style.display = visible ? "block" : "none";
+    }
+    markerIconsRef.current?.classList.toggle("is-preview", isPreview);
+    markerIconRef.current?.classList.toggle("is-active", active && !isPreview);
+
+    if (!visible) {
+      marker.visible = false;
       return;
     }
 
@@ -150,63 +170,38 @@ function PoiMarker({ poi, map, stateRef, reducedMotion }: PoiMarkerProps) {
       ),
       0.0001,
     );
-    const active = stateRef.current.activePoiUid === poi.uid;
-    const visible = stateRef.current.visiblePoiUids.includes(poi.uid);
 
-    marker.visible = visible;
+    marker.visible = true;
     marker.position.set(point[0], point[1], point[2] ?? 0);
     marker.scale.setScalar(coordinateUnit * (active ? 3 : 2));
-
-    const ringGeometry = ringRef.current?.geometry;
-
-    if (!visible) {
-      wasVisibleRef.current = false;
-      ringRevealStartedAtRef.current = 0;
-      ringGeometry?.setDrawRange(0, 0);
-    } else {
-      const now = performance.now();
-
-      if (!wasVisibleRef.current) {
-        wasVisibleRef.current = true;
-        ringRevealStartedAtRef.current = now;
-      }
-
-      ringGeometry?.setDrawRange(
-        0,
-        getRingRevealDrawCount(
-          ringRevealStartedAtRef.current,
-          now,
-          reducedMotion.current,
-        ),
-      );
-
-      if (
-        active &&
-        !reducedMotion.current &&
-        isRingRevealComplete(ringRevealStartedAtRef.current, now) &&
-        ringRef.current
-      ) {
-        ringRef.current.rotation.z += delta * 0.9;
-      }
-    }
   });
 
   return (
     <group ref={markerRef} visible={false}>
-      <mesh>
-        <sphereGeometry args={[0.42, 24, 24]} />
-        <meshBasicMaterial color="#65d8ff" depthTest={false} />
-      </mesh>
-      <mesh ref={ringRef} rotation={[Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[0.92, 1.08, RING_SEGMENTS, 1, 0, Math.PI * 2]} />
-        <meshBasicMaterial
-          color="#0284c7"
-          transparent
-          opacity={0.95}
-          depthTest={false}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
+      <Html ref={markerHtmlRef} pointerEvents="none" wrapperClass="map-story-poi-marker">
+        <span
+          aria-label={poi.name}
+          className="map-story-poi-marker-icons"
+          ref={markerIconsRef}
+          role="img"
+        >
+          <svg
+            aria-hidden="true"
+            className="icon-dingwei map-story-poi-marker-icon"
+            ref={markerIconRef}
+            viewBox="0 0 1024 1024"
+          >
+            <use href="#icon-dingwei" />
+          </svg>
+          <svg
+            aria-hidden="true"
+            className="icon-dingweitishi map-story-poi-marker-icon map-story-poi-marker-icon-hint"
+            viewBox="0 0 1024 1024"
+          >
+            <use href="#icon-dingweitishi" />
+          </svg>
+        </span>
+      </Html>
     </group>
   );
 }
@@ -219,6 +214,11 @@ function RouteLine({
   reducedMotion,
 }: RouteLineProps) {
   const lineRef = useRef<THREE.Line | null>(null);
+  const lastAnimationStartedAtRef = useRef<number | null>(null);
+  const lastDrawProgressRef = useRef<number | null>(null);
+  const lastVisibleRef = useRef(false);
+  const lastActiveRef = useRef<boolean | null>(null);
+  const lastPartialIndexRef = useRef<number | null>(null);
   const projectedPositions = useMemo(
     () =>
       createProjectedRoutePositions(route.geometry, (input, output) =>
@@ -228,26 +228,28 @@ function RouteLine({
   );
   const geometry = useMemo(() => {
     const nextGeometry = new THREE.BufferGeometry();
-    nextGeometry.setAttribute("position", new THREE.BufferAttribute(projectedPositions, 3));
+    nextGeometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(projectedPositions.slice(), 3),
+    );
     return nextGeometry;
   }, [projectedPositions]);
-  const line = useMemo(
-    () => {
-      const nextLine = new THREE.Line(
-        geometry,
-        new THREE.LineBasicMaterial({
-          transparent: true,
-          opacity: 0.8,
-          depthTest: false,
-        }),
-      );
-      nextLine.visible = false;
-      nextLine.frustumCulled = false;
-      return nextLine;
-    },
-    [geometry],
-  );
-
+  const sampler = useMemo(() => createRouteSampler(route.geometry), [route.geometry]);
+  const line = useMemo(() => {
+    const nextLine = new THREE.Line(
+      geometry,
+      new THREE.LineBasicMaterial({
+        transparent: true,
+        opacity: 0.95,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    );
+    nextLine.visible = false;
+    nextLine.frustumCulled = false;
+    nextLine.renderOrder = 10000;
+    return nextLine;
+  }, [geometry]);
   useEffect(() => {
     lineRef.current = line;
 
@@ -267,29 +269,94 @@ function RouteLine({
 
     const stageState = stateRef.current;
     const visible = stageState.visibleRouteLegIds.includes(route.id);
-    const drawProgress = animationProgress(
-      animationRef.current,
-      route.id,
-      "draw",
-      reducedMotion.current,
-    );
-    const pointCount = visible
-      ? drawProgress <= 0
-        ? 0
-        : Math.min(
-            route.geometry.length,
-            Math.max(2, Math.ceil(route.geometry.length * drawProgress)),
-          )
-      : 0;
+    const positionAttribute = geometry.getAttribute("position") as THREE.BufferAttribute;
+    const restorePartialPoint = () => {
+      const partialIndex = lastPartialIndexRef.current;
 
-    activeLine.visible = visible;
-    geometry.setDrawRange(0, pointCount);
+      if (partialIndex === null) {
+        return;
+      }
+
+      const offset = partialIndex * 3;
+      positionAttribute.setXYZ(
+        partialIndex,
+        projectedPositions[offset],
+        projectedPositions[offset + 1],
+        projectedPositions[offset + 2],
+      );
+      positionAttribute.needsUpdate = true;
+      lastPartialIndexRef.current = null;
+    };
+
+    if (!visible) {
+      restorePartialPoint();
+      if (lastVisibleRef.current) {
+        geometry.setDrawRange(0, 0);
+      }
+      activeLine.visible = false;
+      lastAnimationStartedAtRef.current = null;
+      lastDrawProgressRef.current = null;
+      lastVisibleRef.current = false;
+      lastActiveRef.current = null;
+      return;
+    }
+
+    const animation = animationRef.current?.routeLegId === route.id
+      ? animationRef.current
+      : null;
+    const now = performance.now();
+    const drawProgress = animation
+      ? getRouteAnimationProgress(animation.draw, now, reducedMotion.current)
+      : 1;
+    const active = stageState.activeRouteLegId === route.id;
+    const canDraw = drawProgress > 0;
+    const shouldUpdateGeometry = !lastVisibleRef.current
+      || lastAnimationStartedAtRef.current !== (animation?.draw.startedAt ?? null)
+      || lastDrawProgressRef.current !== drawProgress;
+
+    if (shouldUpdateGeometry) {
+      const drawSample = sampler(drawProgress);
+
+      if (drawSample && canDraw && route.geometry.length >= 2) {
+        const projectedSample = map.projectArrayCoordinate(
+          toMapCoordinate(drawSample.point),
+          [0, 0, 0],
+        );
+        const partialIndex = Math.min(
+          drawSample.segmentIndex + 1,
+          route.geometry.length - 1,
+        );
+        restorePartialPoint();
+        if (drawProgress < 1) {
+          positionAttribute.setXYZ(
+            partialIndex,
+            projectedSample[0],
+            projectedSample[1],
+            projectedSample[2] ?? 0,
+          );
+          lastPartialIndexRef.current = partialIndex;
+        }
+        geometry.setDrawRange(0, Math.min(route.geometry.length, partialIndex + 1));
+      } else {
+        restorePartialPoint();
+        geometry.setDrawRange(0, 0);
+      }
+      positionAttribute.needsUpdate = true;
+      lastAnimationStartedAtRef.current = animation?.draw.startedAt ?? null;
+      lastDrawProgressRef.current = drawProgress;
+    }
+
+    activeLine.visible = true;
+    lastVisibleRef.current = true;
 
     const material = activeLine.material as THREE.LineBasicMaterial;
-    material.color.set(
-      stageState.activeRouteLegId === route.id ? "#0057d9" : "#4338ca",
-    );
-    material.opacity = stageState.activeRouteLegId === route.id ? 1 : 0.9;
+
+    if (lastActiveRef.current !== active || shouldUpdateGeometry) {
+      const color = active ? "#075985" : "#4338ca";
+      material.color.set(color);
+      material.opacity = active ? 0.98 : 0.8;
+      lastActiveRef.current = active;
+    }
   });
 
   return <primitive object={line} />;
@@ -298,11 +365,10 @@ function RouteLine({
 function StoryOverlay({
   plan,
   map,
-  runtime,
+  stateRef,
   animationRef,
   reducedMotion,
 }: StoryOverlayProps) {
-  const stateRef = useRef(runtime.getState());
   const pois = useMemo(
     () => plan.days.flatMap((day) => day.stops.map((stop) => stop.poi)),
     [plan],
@@ -311,19 +377,22 @@ function StoryOverlay({
     () => plan.days.flatMap((day) => day.routeLegs),
     [plan],
   );
-
-  useFrame(() => {
-    stateRef.current = runtime.getState();
-  });
+  const routesById = useMemo(
+    () => new Map(routes.map((route) => [route.id, route] as const)),
+    [routes],
+  );
+  useFrame(() => undefined, 1);
 
   return (
     <>
       {pois.map((poi) => (
         <PoiMarker
+          animationRef={animationRef}
           key={poi.uid}
           map={map}
           poi={poi}
           reducedMotion={reducedMotion}
+          routesById={routesById}
           stateRef={stateRef}
         />
       ))}
@@ -360,14 +429,19 @@ const BaiduMapStage = forwardRef<MapStageHandle, BaiduMapStageProps>(
         ),
       [plan],
     );
+    const runtimeStateRef = useRef<MapStageState>(runtime.getState());
+    useEffect(() => {
+      runtimeStateRef.current = runtime.getState();
+    }, [runtime]);
+
     const firstPoi =
       plan.days[0]?.stops[0]?.poi ?? nanjingTripPlan.days[0].stops[0].poi;
 
     const applyCommandToEngine = useCallback(
       (engine: MapEngine, command: StoryCommand) => {
-        const setProjection = () => {
+        const setProjection = (projection: "EPSG:4326") => {
           engine.map.map.cancelFlight?.();
-          engine.map.setProjection("EPSG:4326");
+          engine.map.setProjection(projection);
         };
 
         const flyTo = (target: GeoPoint, range: number, duration: number) => {
@@ -375,7 +449,7 @@ const BaiduMapStage = forwardRef<MapStageHandle, BaiduMapStageProps>(
             heading: 0,
             pitch: 45,
             range,
-            duration: reducedMotionRef.current ? 1 : duration,
+            duration: reducedMotionRef.current ? 1 : toRealPlaybackDuration(duration),
             complete: () => undefined,
             cancel: () => undefined,
           });
@@ -384,45 +458,65 @@ const BaiduMapStage = forwardRef<MapStageHandle, BaiduMapStageProps>(
         switch (command.type) {
           case "stage.clear":
             animationRef.current = null;
-            setProjection();
+            engine.map.map.cancelFlight?.();
             break;
           case "globe.focus":
-            setProjection();
-            flyTo(command.payload.target, 420000, command.durationMs);
+            setProjection("EPSG:4326");
             break;
           case "projection.toFlat":
-            setProjection();
+            setProjection("EPSG:4326");
             break;
-          case "camera.flyTo":
+          case "camera.flyTo": {
+            runtimeStateRef.current = {
+              ...runtimeStateRef.current,
+              cameraZoom: command.payload.zoom,
+            };
+
             flyTo(
               command.payload.target,
               rangeForZoom(command.payload.zoom),
               command.durationMs,
             );
             break;
-          case "route.draw":
+          }
+          case "route.draw": {
+            const route = routesById.get(command.payload.routeLegId);
+            const target = route?.geometry[1] ?? route?.geometry[0];
+            const zoom = route
+              ? zoomForRouteDistance(route.distanceMeters)
+              : runtimeStateRef.current.cameraZoom ?? 14;
+            const shouldFitRoute = Boolean(route && target);
+
+            if (shouldFitRoute && target) {
+              runtimeStateRef.current = {
+                ...runtimeStateRef.current,
+                cameraZoom: zoom,
+              };
+              flyTo(target, rangeForZoom(zoom), command.durationMs);
+            }
+
             animationRef.current = {
               routeLegId: command.payload.routeLegId,
-              mode: "draw",
-              startedAt: performance.now(),
-              durationMs: Math.max(1, command.durationMs),
+              draw: {
+                startedAt: performance.now() + (
+                  shouldFitRoute && !reducedMotionRef.current
+                    ? toRealPlaybackDuration(command.durationMs)
+                    : 0
+                ),
+                durationMs: toRealRouteDuration(command.durationMs),
+                easing: command.easing,
+              },
             };
             break;
+          }
           case "route.follow": {
             const route = routesById.get(command.payload.routeLegId);
             const target = route?.geometry.at(-1);
 
-            animationRef.current = {
-              routeLegId: command.payload.routeLegId,
-              mode: "follow",
-              startedAt: performance.now(),
-              durationMs: Math.max(1, command.durationMs),
-            };
-
             if (target) {
               flyTo(
                 target,
-                rangeForZoom(runtime.getState().cameraZoom ?? 14),
+                rangeForZoom(runtimeStateRef.current.cameraZoom ?? 14),
                 command.durationMs,
               );
             }
@@ -434,14 +528,21 @@ const BaiduMapStage = forwardRef<MapStageHandle, BaiduMapStageProps>(
 
         engine.requestRender();
       },
-      [routesById, runtime],
+      [routesById],
     );
 
     useImperativeHandle(
       ref,
       () => ({
         applyCommand(command) {
-          runtime.apply(command);
+          const nextState = runtime.apply(command);
+          runtimeStateRef.current =
+            command.type === "stage.clear" || command.type === "camera.flyTo"
+              ? nextState
+              : {
+                  ...nextState,
+                  cameraZoom: runtimeStateRef.current.cameraZoom,
+                };
 
           if (engineRef.current) {
             applyCommandToEngine(engineRef.current, command);
@@ -464,6 +565,15 @@ const BaiduMapStage = forwardRef<MapStageHandle, BaiduMapStageProps>(
 
       return () => mediaQuery.removeEventListener("change", updateMotionPreference);
     }, []);
+
+    useEffect(() => {
+      if (engineRef.current) {
+        syncAnimationLoop(
+          engineRef.current as MapEngine & AnimationLoopHost,
+          isPlaying,
+        );
+      }
+    }, [isPlaying, status]);
 
     useEffect(() => {
       const container = containerRef.current;
@@ -506,7 +616,8 @@ const BaiduMapStage = forwardRef<MapStageHandle, BaiduMapStageProps>(
 
           engine = new mapvthree.Engine(container, {
             rendering: {
-              enableAnimationLoop: true,
+              pixelRatio: limitMapPixelRatio(window.devicePixelRatio),
+              enableAnimationLoop: false,
               animationLoopFrameTime: 16,
               features: {
                 antialias: {
@@ -536,7 +647,6 @@ const BaiduMapStage = forwardRef<MapStageHandle, BaiduMapStageProps>(
             widgets: {},
           });
           engineRef.current = engine;
-
           root = createRoot(engine.renderer.domElement);
           await root.configure(
             createExternalRootConfig({
@@ -558,7 +668,7 @@ const BaiduMapStage = forwardRef<MapStageHandle, BaiduMapStageProps>(
                 map={engine.map}
                 plan={plan}
                 reducedMotion={reducedMotionRef}
-                runtime={runtime}
+                stateRef={runtimeStateRef}
               />,
             )
             .getState();
@@ -572,8 +682,8 @@ const BaiduMapStage = forwardRef<MapStageHandle, BaiduMapStageProps>(
           setStatus("ready");
           setMessage(
             baiduMapAk
-              ? "百度矢量底图与路线故事已挂载到同一个 Engine"
-              : "R3F 路线故事已挂载到 JSAPI Three 的 renderer / scene / camera",
+              ? "渲染引擎已就绪，百度底图可能仍在加载；路线故事已挂载到同一个 Engine"
+              : "渲染引擎已就绪，R3F 路线故事已挂载到 JSAPI Three 的 renderer / scene / camera",
           );
 
           pendingCommandsRef.current.splice(0).forEach((command) => {
@@ -599,7 +709,7 @@ const BaiduMapStage = forwardRef<MapStageHandle, BaiduMapStageProps>(
     }, [applyCommandToEngine, firstPoi, onReady, plan, runtime]);
 
     const hasBaiduMapAk = Boolean(process.env.NEXT_PUBLIC_BAIDU_MAP_AK?.trim());
-    const statusLabel = status === "ready" ? "已连接" : status === "error" ? "初始化失败" : "初始化中";
+    const statusLabel = status === "ready" ? "引擎就绪" : status === "error" ? "初始化失败" : "初始化中";
     const statusClass =
       status === "ready"
         ? "bg-emerald-300/15 text-emerald-200"
@@ -615,9 +725,9 @@ const BaiduMapStage = forwardRef<MapStageHandle, BaiduMapStageProps>(
           {isPlaying && status !== "error" ? (
             <div
               aria-label="紧凑地图状态"
-              className="pointer-events-auto flex items-center gap-3 rounded-xl border border-cyan-200/20 bg-slate-950/80 px-3 py-2 text-slate-100 shadow-2xl shadow-cyan-950/30 backdrop-blur-md"
+              className="pointer-events-auto flex items-center gap-3 rounded-xl border border-cyan-200/20 bg-slate-950/80 px-3 py-2 text-slate-100 shadow-2xl shadow-cyan-950/30"
             >
-              <span className="text-sm font-semibold tracking-tight">南京 · 路线故事</span>
+              <span className="text-sm font-semibold tracking-tight">{plan.destination} · 路线故事</span>
               <span
                 className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusClass}`}
               >
@@ -625,11 +735,11 @@ const BaiduMapStage = forwardRef<MapStageHandle, BaiduMapStageProps>(
               </span>
             </div>
           ) : (
-            <div className="w-full max-w-2xl rounded-2xl border border-cyan-200/20 bg-slate-950/75 p-5 text-slate-100 shadow-2xl shadow-cyan-950/30 backdrop-blur-md">
+            <div className="w-full max-w-2xl rounded-2xl border border-cyan-200/20 bg-slate-950/75 p-5 text-slate-100 shadow-2xl shadow-cyan-950/30">
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-xs uppercase tracking-[0.28em] text-cyan-200/70">MapStage</p>
-                  <h1 className="mt-2 text-xl font-semibold tracking-tight">南京 · 路线故事</h1>
+                  <h1 className="mt-2 text-xl font-semibold tracking-tight">{plan.destination} · 路线故事</h1>
                 </div>
                 <span className={`rounded-full px-3 py-1 text-xs font-medium ${statusClass}`}>
                   {statusLabel}
@@ -643,7 +753,7 @@ const BaiduMapStage = forwardRef<MapStageHandle, BaiduMapStageProps>(
               <div className="mt-4 grid gap-2 text-xs text-slate-400 sm:grid-cols-2">
                 <p>Engine：负责唯一 WebGL 渲染循环</p>
                 <p>StoryPlayer：发出语义路线命令</p>
-                <p>数据：Nanjing fixture / BD-09</p>
+                <p>数据：{plan.destination} / BD-09</p>
                 <p>底图：{hasBaiduMapAk ? "Baidu 矢量底图" : "未配置 AK，当前使用故事叠加层"}</p>
               </div>
             </div>

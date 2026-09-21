@@ -7,9 +7,11 @@
     "build": "next build",
     "start": "next start --port 8989",
     "lint": "eslint",
-    "backend:dev": "node --watch --env-file=backend/.env --import=tsx backend/start.ts",
-    "backend:start": "node --env-file=backend/.env --import=tsx backend/start.ts",
-    "backend:test": "node --import=tsx --test \"backend/tests/*.test.ts\"",
+    "backend:dev": "cd ../lumivo-backend && python -m uvicorn app.main:app --reload --port 8000",
+    "backend:start": "cd ../lumivo-backend && python -m uvicorn app.main:app --port 8000",
+    "backend:legacy:dev": "node --watch --env-file=backend/.env --import=tsx backend/start.ts",
+    "backend:legacy:start": "node --env-file=backend/.env --import=tsx backend/start.ts",
+    "backend:test": "node --import=tsx --test backend/tests/ai-client.test.ts backend/tests/config.test.ts backend/tests/server.test.ts backend/tests/trip-planner.test.ts",
     "backend:typecheck": "tsc -p backend/tsconfig.json --noEmit"
   },
   "dependencies": {

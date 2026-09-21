@@ -30,6 +30,7 @@ export type RouteLeg = {
   distanceMeters: number;
   durationSeconds: number;
   geometry: GeoPoint[];
+  instructions?: string[];
 };
 
 export type TripDay = {

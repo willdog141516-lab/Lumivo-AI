@@ -1,6 +1,6 @@
 # Lumivo AI Project Context
 
-Last updated: 2026-08-21
+Last updated: 2026-09-17
 
 This file is the short operational context for developers and coding agents. It records what the project is building, what has already been decided, what actually exists, and what should happen next.
 
@@ -23,7 +23,7 @@ The first reference scenario is a three-day Nanjing trip. It is the fixture, dem
 ## Confirmed technical decisions
 
 - Frontend: Next.js, React, TypeScript.
-- Backend: TypeScript Node service using native `http`/`fetch`; the current chat contract is maintained in focused TypeScript modules.
+- Backend: Python FastAPI service in sibling `lumivo-backend`; the frontend `backend/` TypeScript Node service remains only as a legacy compatibility path for focused tests.
 - AI provider: OpenAI-compatible Chat Completions API; DeepSeek is the default local configuration and can be replaced through environment variables.
 - China map authority: Baidu Map JSAPI Three and Baidu Web APIs.
 - Custom 3D effects: React Three Fiber and Three.js.
@@ -42,13 +42,14 @@ The repository currently has:
 - An R3F procedural Earth with stars, lighting, rotation, drag, and zoom, preserved at `/earth`.
 - A deterministic three-day Nanjing `TripPlan` and matching `StoryTimeline` fixture in `lib/trip/`.
 - A deterministic `StoryPlayer` state machine, shared route-story playback panel, and `TripStoryExperience` that sends the same semantic commands to MapStage.
-- MapStage fixture command translation for overview-to-city camera flights, attraction markers, route drawing, and route-follow camera movement; commands are queued until the Engine is ready.
+- MapStage fixture command translation for overview-to-city camera flights, attraction markers, route drawing, and route-follow camera movement; story playback keeps the Baidu provider on its flat `EPSG:4326` projection, routes animate by progressive drawing without a world-scaled arrow, and commands are queued until the Engine is ready.
 - A `/map-stage-spike` that creates a JSAPI Three `Engine`, reuses its renderer/scene/camera in R3F, and advances R3F from the Engine render callback. Its current local Baidu AK receives HTTP 403 from JSAPI Three tile endpoints, so live basemap loading is not yet verified.
-- A TypeScript Node backend in `backend/` with `GET /health`, `POST /api/chat`, bounded request validation, provider timeout/error mapping, and fake-provider tests.
+- A legacy TypeScript Node compatibility backend in `backend/` with `GET /health`, `POST /api/chat`, bounded request validation, provider timeout/error mapping, and fake-provider tests; the playable planning path uses the sibling FastAPI service.
 - A basic Chinese AI chat page at `/` and `/ai` that accepts arbitrary China destinations, keeps conversation state in memory, and calls the local backend.
-- The AI chat page consumes the backend SSE response and renders assistant Markdown incrementally with `streamdown`; playable planning remains a complete JSON response.
-- A `POST /api/trips/plan` endpoint that supports only 南京/南京市 with 3 days, sends fixture UID/name candidates to the configured AI provider, and returns the canonical `nanjingPlanningResult` only after strict selection validation.
-- A focused `lumivo.active-trip.v1` browser marker store and `/trip` client wrapper that rehydrates the canonical Nanjing result while preserving the fixture fallback.
+- The AI chat page consumes the compatibility backend SSE response and renders assistant Markdown incrementally with `streamdown`; playable planning consumes the FastAPI canonical NDJSON stream through `TripClient`.
+- A global dark/light theme toggle in the root layout, defaulting to dark and preserving the selected theme in browser storage.
+- A `TripClient` integration that plans through `POST /api/v1/trips/plan`, displays progress, persists the validated result, and opens `/trip`; the trip page can revise one day through `POST /api/v1/trips/revise` and keeps the returned versioned timeline playable.
+- A focused `lumivo.active-trip.v1` browser store and `/trip` client wrapper that persists any validated `PlanningResult`, checks POI/timeline references and narration anchors, rehydrates legacy Nanjing markers, and preserves the fixture fallback.
 
 The repository does not yet have:
 
@@ -63,6 +64,7 @@ The repository does not yet have:
 - Every playable route has provider-sourced geometry, distance, and duration.
 - A plan with invalid POIs or missing route legs is not playable.
 - A timeline is accepted only when its `tripId` and `version` match the active plan.
+- A POI-bound narration must match the stop narration and contain a short anchor from that POI name before a cached plan is playable.
 - Map and animation modules consume domain commands; they do not parse free-form model output.
 - Provider failures produce explicit structured errors and never fake success.
 
@@ -71,10 +73,10 @@ The repository does not yet have:
 1. Build a static Nanjing `TripPlan` and `StoryTimeline` fixture. **Completed:** deterministic data and invariant tests now live in `lib/trip/`.
 2. Prove the JSAPI Three and R3F integration on one visible map stage. **Spike added:** `/map-stage-spike` has a single Engine-owned render loop, but its current Baidu tile requests return HTTP 403 and need a correctly authorized browser AK.
 3. Finish MapStage command translation for the deterministic StoryPlayer route playback. **Completed for the fixture:** shared player wiring, command runtime tests, marker/route overlays, and map camera commands now live on `/trip`.
-4. Connect the provider-configurable TypeScript chat slice to the verified Nanjing fixture planning contract. **Completed:** `/api/trips/plan`, strict UID validation, browser marker hydration, and `/`/`/ai` → `/trip` navigation now form the local acceptance flow.
-5. Add real Baidu POI and route data behind explicit adapters for arbitrary China destinations.
-6. Replace the fixture planner with AI planning constrained to the provider-verified candidate set and compile the result into the existing story flow.
-7. Add plan revision, recovery states, local persistence, and performance work.
+4. Connect the provider-configurable TypeScript chat slice to the verified Nanjing fixture planning contract. **Completed:** compatibility chat, canonical FastAPI planning, strict UID validation, browser persistence, and `/`/`/ai` → `/trip` navigation form the local acceptance flow.
+5. Add real Baidu POI and route data behind explicit adapters for arbitrary China destinations. **Local adapters completed:** live credentials, quotas, and broader coverage still need smoke evidence.
+6. **Completed locally:** canonical NDJSON planning and stateless one-day revision constrained by provider-verified POIs; the returned version and timeline are rendered by the existing story flow.
+7. Add browser acceptance, recovery/performance hardening, and live provider smoke evidence.
 
 ## Decision log
 
@@ -89,6 +91,8 @@ The repository does not yet have:
 | 2026-08-21 | Fixture planning is fail-closed | The local planning endpoint may return only the canonical Nanjing fixture; other regions and invalid model selections produce structured errors. |
 | 2026-08-21 | JSAPI Three needs an authorized browser AK | The current local AK returns HTTP 403 for ordinary, street, and vector tile endpoints from common localhost referers. |
 | 2026-08-21 | AI search is the first screen | `/` starts with natural-language travel Q&A; a playable result drills down to `/trip`, which owns the MapStage story experience. |
+| 2026-09-17 | Story playback uses one Engine loop with bounded overlay work | Keep the Engine authoritative, update route geometry only when playback state changes, start one `map.flyTo` per route-follow command instead of recentering every frame, show only the active route leg, and avoid world-scaled route-head overlays; keep the Baidu provider on flat `EPSG:4326`, cancel camera flights on reset, and seek by rebuilding only the selected chapter. |
+| 2026-09-18 | FastAPI is the canonical planning boundary | `TripClient` consumes NDJSON progress and terminal results from `/api/v1/trips/plan` and `/api/v1/trips/revise`; the legacy TypeScript service remains only for compatibility chat behavior. |
 
 ## When to update this file
 

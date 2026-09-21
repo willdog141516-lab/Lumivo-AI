@@ -1,3 +1,5 @@
+import { toRealPlaybackDuration } from "../story-player/playback-rate";
+
 export const RING_SEGMENTS = 64;
 export const RING_REVEAL_DURATION_MS = 650;
 
@@ -14,7 +16,7 @@ export function getRingRevealDrawCount(
 
   const progress = Math.min(
     1,
-    Math.max(0, (now - startedAt) / RING_REVEAL_DURATION_MS),
+    Math.max(0, (now - startedAt) / toRealPlaybackDuration(RING_REVEAL_DURATION_MS)),
   );
 
   return Math.floor(progress * RING_SEGMENTS) * INDICES_PER_SEGMENT;
