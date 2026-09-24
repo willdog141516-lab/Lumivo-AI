@@ -8,10 +8,10 @@ const labels: Record<RouteLeg["mode"], string> = {
 };
 
 const icons: Record<RouteLeg["mode"], string | null> = {
-  walk: null,
-  transit: "icon-gongjiaoche",
+  walk: "icon-buxing",
+  transit: "icon-a-211_ditie",
   drive: "icon-xiaoqiche",
-  ride: null,
+  ride: "icon-qixing",
 };
 
 const emojis: Record<RouteLeg["mode"], string> = {

@@ -40,7 +40,6 @@ const planningProgressMessages: Record<string, string> = {
   "plan.validated": "正在校验行程…",
   "timeline.ready": "正在准备地图故事…",
 };
-
 async function readChatStream(response: Response, onDelta: (content: string) => void) {
   const reader = response.body?.getReader();
   if (!reader) {
@@ -320,18 +319,18 @@ export default function AiChat() {
 
             {hasMessages && (
               <div className="ai-home-plan-cta mt-4 flex flex-col gap-3 rounded-2xl border border-cyan-200/20 bg-cyan-100/10 p-4 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-medium text-cyan-50">准备好把这段对话变成路线了吗？</p>
-                <p className="mt-1 text-xs leading-5 text-cyan-100/60">会从对话提取目的地和天数；启用真实地图规划后，可生成中国境内目的地的可播放行程。</p>
-              </div>
+                <div>
+                  <p className="text-sm font-medium text-cyan-50">准备好把这段对话变成路线了吗？</p>
+                  <p className="mt-1 text-xs leading-5 text-cyan-100/60">会从对话提取目的地和天数；启用真实地图规划后，可生成中国境内目的地的可播放行程。</p>
+                </div>
               <button
                 className="h-10 shrink-0 rounded-xl bg-cyan-100 px-4 text-sm font-semibold text-[#102126] transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={isBusy}
                 onClick={hasPlayablePlan ? () => router.push("/trip") : createPlayablePlan}
                 type="button"
               >
-                    {planning ? planningStatus : hasPlayablePlan ? "查看地图故事 ↗" : "生成可播放行程 ↗"}
-                  </button>
+                {planning ? planningStatus : hasPlayablePlan ? "查看地图故事 ↗" : "生成可播放行程 ↗"}
+              </button>
               </div>
             )}
           </div>

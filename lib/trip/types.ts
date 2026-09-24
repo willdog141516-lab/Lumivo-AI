@@ -36,15 +36,10 @@ export type RouteLeg = {
 export type TripDay = {
   day: number;
   title: string;
+  date?: string;
   summary: string;
   stops: TripStop[];
   routeLegs: RouteLeg[];
-};
-
-export type PlanWarning = {
-  code: "OPENING_HOURS_UNCERTAIN" | "SCHEDULE_TIGHT" | "TRANSPORT_LIMITED";
-  message: string;
-  poiUid?: string;
 };
 
 export type TripPlan = {
@@ -53,7 +48,7 @@ export type TripPlan = {
   destination: string;
   summary: string;
   days: TripDay[];
-  warnings: PlanWarning[];
+  warnings: string[];
 };
 
 export type StoryCommandType =

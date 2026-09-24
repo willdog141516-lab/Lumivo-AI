@@ -14,8 +14,12 @@ const TripStoryExperience = tripStoryExperienceModule.default.default;
 test("story experience provides a link back to the AI chat", () => {
   const html = renderToStaticMarkup(
     createElement(TripStoryExperience, {
+      isTripRevisionBusy: false,
+      onTransportChange: () => {},
       plan: nanjingTripPlan,
+      reroutingMode: null,
       timeline: nanjingStoryTimeline,
+      transportError: null,
     }),
   );
 

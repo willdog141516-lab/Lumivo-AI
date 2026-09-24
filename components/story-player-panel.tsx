@@ -10,6 +10,7 @@ import {
   toRealPlaybackDuration,
   toTimelineDelta,
 } from "@/lib/story-player/playback-rate";
+import type { TransportMode } from "@/lib/trip/client";
 import type { StoryTimeline, TripPlan } from "@/lib/trip/types";
 import { transportSummaryForDay } from "@/lib/trip/transport";
 
@@ -17,7 +18,22 @@ type StoryPlayerPanelProps = {
   plan: TripPlan;
   timeline: StoryTimeline;
   player: StoryPlayer;
+  onTransportChange: (mode: TransportMode) => void | Promise<void>;
+  reroutingMode: TransportMode | null;
+  transportError: string | null;
+  isTripRevisionBusy: boolean;
 };
+
+const transportOptions = [
+  { mode: "transit", label: "公共交通", icon: "icon-a-211_ditie" },
+  { mode: "drive", label: "驾车", icon: "icon-xiaoqiche" },
+  { mode: "walk", label: "步行", icon: "icon-buxing" },
+  { mode: "ride", label: "骑行", icon: "icon-qixing" },
+] satisfies { mode: TransportMode; label: string; icon: string }[];
+
+const transportLabels = Object.fromEntries(
+  transportOptions.map(({ mode, label }) => [mode, label]),
+) as Record<TransportMode, string>;
 
 const controlClass =
   "rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-sm text-white motion-safe:transition hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:opacity-40";
@@ -29,7 +45,15 @@ const statusLabels: Record<StoryPlayerState["status"], string> = {
   completed: "已完成",
 };
 
-export default function StoryPlayerPanel({ plan, timeline, player }: StoryPlayerPanelProps) {
+export default function StoryPlayerPanel({
+  plan,
+  timeline,
+  player,
+  onTransportChange,
+  reroutingMode = null,
+  transportError = null,
+  isTripRevisionBusy = false,
+}: StoryPlayerPanelProps) {
   const [state, setState] = useState<StoryPlayerState>(() => player.getState());
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -63,6 +87,74 @@ export default function StoryPlayerPanel({ plan, timeline, player }: StoryPlayer
     day,
     legs: transportSummaryForDay(day),
   })).filter(({ legs }) => legs.length > 0);
+  const routeModes = plan.days.flatMap((day) => day.routeLegs.map((leg) => leg.mode));
+  const selectedTransport = routeModes.length > 0 && routeModes.every((mode) => mode === routeModes[0])
+    ? routeModes[0]
+    : null;
+  const isFixturePlan = plan.days.some((day) =>
+    day.stops.some((stop) => stop.poi.source === "fixture"),
+  );
+  const hasRoutes = routeModes.length > 0;
+  const isTransportBusy = reroutingMode !== null || isTripRevisionBusy;
+  const transportPreference = (
+    <div className="pointer-events-auto flex w-full max-w-2xl flex-wrap items-center gap-1.5 rounded-xl border border-cyan-200/20 bg-slate-950/90 p-2 text-slate-100 shadow-2xl shadow-cyan-950/40">
+      <span className="mr-1 text-xs text-slate-400">优先方式</span>
+      <div aria-label="优先出行方式" className="flex flex-wrap gap-1" role="group">
+        {transportOptions.map(({ mode, label, icon }) => (
+          <button
+            aria-label={"优先方式：" + label}
+            aria-pressed={selectedTransport === mode}
+            className={[
+              "flex items-center gap-1 rounded-md px-2 py-1 text-xs motion-safe:transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:opacity-40",
+              selectedTransport === mode
+                ? "bg-cyan-300/15 text-cyan-100"
+                : "text-slate-300 hover:bg-white/10 hover:text-white",
+            ].join(" ")}
+            disabled={isFixturePlan || !hasRoutes || isTransportBusy}
+            key={mode}
+            onClick={() => {
+              if (mode !== selectedTransport && !isFixturePlan && hasRoutes && !isTransportBusy) {
+                void onTransportChange(mode);
+              }
+            }}
+            type="button"
+          >
+            <svg aria-hidden="true" className="h-3.5 w-3.5 fill-current" viewBox="0 0 1024 1024">
+              <use href={`#${icon}`} />
+            </svg>
+            {label}
+          </button>
+        ))}
+      </div>
+      {isFixturePlan ? (
+        <p className="w-full text-[11px] text-slate-400" role="note">
+          示例路线固定，无法重新规划优先方式
+        </p>
+      ) : !hasRoutes ? (
+        <p className="w-full text-[11px] text-slate-400" role="note">
+          当前行程没有可切换的路段
+        </p>
+      ) : isTransportBusy ? (
+        <p aria-live="polite" className="w-full text-[11px] text-cyan-100/80">
+          {reroutingMode
+            ? "正在按" + transportLabels[reroutingMode] + "重新规划路线…"
+            : "正在调整行程…"}
+        </p>
+      ) : transportError ? (
+        <p aria-live="polite" className="w-full text-[11px] text-rose-200" role="alert">
+          {transportError}
+        </p>
+      ) : null}
+    </div>
+  );
+  const transportOverlay = (
+    <section
+      aria-label="优先出行方式控件"
+      className="story-player-transport pointer-events-auto absolute left-5 top-20 z-20 right-5 sm:left-8 sm:top-24 sm:right-auto"
+    >
+      {transportPreference}
+    </section>
+  );
   const formatTime = (seconds: number) =>
     `${Math.floor(seconds / 60).toString().padStart(2, "0")}:${(seconds % 60)
       .toString()
@@ -82,11 +174,13 @@ export default function StoryPlayerPanel({ plan, timeline, player }: StoryPlayer
 
   if (state.status === "playing" && !isExpanded) {
     return (
-      <section className="story-player-panel pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-3 sm:p-4">
-        <div
-          aria-label="紧凑播放控制台"
-          className="pointer-events-auto flex w-full max-w-2xl items-center gap-3 rounded-xl border border-cyan-200/20 bg-slate-950/85 px-3 py-2.5 text-slate-100 shadow-2xl shadow-cyan-950/40 sm:gap-4 sm:px-4"
-        >
+      <>
+        {transportOverlay}
+        <section className="story-player-panel pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col items-center gap-2 p-3 sm:p-4">
+          <div
+            aria-label="紧凑播放控制台"
+            className="pointer-events-auto flex w-full max-w-2xl items-center gap-3 rounded-xl border border-cyan-200/20 bg-slate-950/85 px-3 py-2.5 text-slate-100 shadow-2xl shadow-cyan-950/40 sm:gap-4 sm:px-4"
+          >
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between gap-2">
               <p className="truncate text-xs font-medium text-slate-100">{chapter?.title ?? "路线故事"}</p>
@@ -124,14 +218,17 @@ export default function StoryPlayerPanel({ plan, timeline, player }: StoryPlayer
           >
             展开
           </button>
-        </div>
-      </section>
+          </div>
+        </section>
+      </>
     );
   }
 
   return (
-    <section className="story-player-panel pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-4 sm:p-6">
-      <div className="pointer-events-auto w-full max-w-5xl rounded-2xl border border-cyan-200/20 bg-slate-950/85 p-4 text-slate-100 shadow-2xl shadow-cyan-950/40 sm:p-5">
+    <>
+      {transportOverlay}
+      <section className="story-player-panel pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-4 sm:p-6">
+        <div className="pointer-events-auto w-full max-w-5xl rounded-2xl border border-cyan-200/20 bg-slate-950/85 p-4 text-slate-100 shadow-2xl shadow-cyan-950/40 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs uppercase tracking-[0.24em] text-cyan-200/70">路线故事</p>
@@ -170,17 +267,17 @@ export default function StoryPlayerPanel({ plan, timeline, player }: StoryPlayer
           </div>
         </div>
 
-        <div aria-live="polite" className="mt-3 min-h-12 rounded-xl bg-white/5 px-3 py-2 text-sm leading-6 text-slate-200">
-          {state.activeNarration?.text ?? "准备进入本章路线，点击播放开始。"}
-        </div>
-
         {transportDays.length > 0 && (
           <div className="mt-3" aria-label="交通方式">
             <p className="text-xs font-medium text-cyan-100">交通方式</p>
             <ul className="mt-2 flex gap-2 overflow-x-auto pb-1">
               {transportDays.map(({ day, legs }) => (
                 <li className="max-w-lg truncate rounded-lg bg-white/5 px-2.5 py-2 text-xs text-slate-300" key={day.day}>
-                  第{day.day}天 {legs[0].fromName} → {legs[0].toName} · {legs[0].label}{legs.length > 1 ? `（等 ${legs.length - 1} 段）` : ""}
+                  第{day.day}天 {legs[0].fromName} → {legs[0].toName} · {legs[0].icon ? (
+                    <svg aria-hidden="true" className="inline-block h-3.5 w-3.5 fill-current align-[-2px]" viewBox="0 0 1024 1024">
+                      <use href={`#${legs[0].icon}`} />
+                    </svg>
+                  ) : legs[0].fallbackIcon} {legs[0].label}{legs.length > 1 ? `（等 ${legs.length - 1} 段）` : ""}
                 </li>
               ))}
             </ul>
@@ -237,7 +334,8 @@ export default function StoryPlayerPanel({ plan, timeline, player }: StoryPlayer
             </button>
           ))}
         </div>
-      </div>
-    </section>
+        </div>
+      </section>
+    </>
   );
 }

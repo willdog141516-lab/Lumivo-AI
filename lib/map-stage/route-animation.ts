@@ -14,6 +14,11 @@ export type RouteSample = {
   segmentProgress: number;
 };
 
+export type RouteAnimationFrame = {
+  progress: number;
+  sample: RouteSample | null;
+};
+
 export function getRouteAnimationProgress(
   phase: RouteAnimationPhase,
   now: number,
@@ -102,4 +107,17 @@ export function createRouteSampler(points: readonly GeoPoint[]) {
       segmentProgress: 1,
     };
   };
+}
+
+export function getRouteAnimationFrame(
+  sampler: (progress: number) => RouteSample | null,
+  phase: RouteAnimationPhase | null,
+  now: number,
+  reducedMotion = false,
+): RouteAnimationFrame {
+  const progress = phase
+    ? getRouteAnimationProgress(phase, now, reducedMotion)
+    : 1;
+
+  return { progress, sample: sampler(progress) };
 }

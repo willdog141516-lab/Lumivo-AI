@@ -50,9 +50,22 @@ declare module "@baidumap/mapv-three" {
     dispose(): void;
   }
 
+  type BaiduVectorTileRequest = {
+    loaderConfig?: { baseZ?: number };
+    grid: {
+      getRasterTileCoord(
+        zoom: number,
+        x: number,
+        y: number,
+      ): [number, number, number];
+    };
+  };
+
   export class BaiduVectorTileProvider {
     constructor(options?: {
-      ak?: string;
+      isOffline?: boolean;
+      url?: string;
+      projection?: string;
       displayOptions?: {
         base?: boolean;
         link?: boolean;
@@ -61,16 +74,11 @@ declare module "@baidumap/mapv-three" {
         flat?: boolean;
       };
     });
-  }
-
-  export class Baidu09ImageryTileProvider {
-    constructor(options?: {
-      ak?: string;
-      type?: "street" | "satellite";
-    });
-  }
-
-  export class BaiduMapConfig {
-    static ak: string;
+    getTileURL(
+      zoom: number,
+      x: number,
+      y: number,
+      tile: BaiduVectorTileRequest,
+    ): string;
   }
 }

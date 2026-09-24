@@ -10,3 +10,10 @@ test("trip story remounts the map when the active plan version changes", () => {
     /<TripStoryExperience\s+key=\{`\$\{activeResult\.plan\.id\}:\$\{activeResult\.plan\.version\}`\}/,
   );
 });
+
+test("successful route preference changes persist and replace the active result", () => {
+  assert.ok(source.includes("tripClient.rerouteTrip"));
+  assert.ok(source.includes("saveActiveTrip(nextResult)"));
+  assert.ok(source.includes("setCurrentResult(nextResult)"));
+  assert.ok(source.includes("onTransportChange={reroute}"));
+});

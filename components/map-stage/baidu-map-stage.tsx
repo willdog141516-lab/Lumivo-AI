@@ -2,6 +2,9 @@
 
 import { Html } from "@react-three/drei";
 import { advance, createRoot, extend, useFrame } from "@react-three/fiber";
+import { Line2 } from "three/addons/lines/Line2.js";
+import { LineGeometry } from "three/addons/lines/LineGeometry.js";
+import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import {
   forwardRef,
   useCallback,
@@ -28,6 +31,7 @@ import {
 import { createProjectedRoutePositions } from "@/lib/map-stage/route-geometry";
 import {
   createRouteSampler,
+  getRouteAnimationFrame,
   getRouteAnimationProgress,
   type RouteAnimationPhase,
 } from "@/lib/map-stage/route-animation";
@@ -43,6 +47,7 @@ import type {
   TripPlan,
   VerifiedPoi,
 } from "@/lib/trip/types";
+import { transportSummary } from "@/lib/trip/transport";
 
 declare global {
   interface Window {
@@ -74,6 +79,28 @@ type BaiduMapStageProps = {
   onReady?: () => void;
 };
 
+const DEFAULT_BAIDU_BACKEND_URL = "http://localhost:8000";
+const BAIDU_MAP_PROXY_PATH = "/api/v1/map/baidu";
+
+export function getBaiduMapProxyBaseUrl(
+  backendUrl = process.env.NEXT_PUBLIC_AI_BACKEND_URL || DEFAULT_BAIDU_BACKEND_URL,
+): string {
+  return `${backendUrl.trim().replace(/\/+$/, "")}${BAIDU_MAP_PROXY_PATH}`;
+}
+
+export function createBaiduVectorTileProxyUrl(
+  baseUrl: string,
+  zoom: number,
+  x: number | string,
+  y: number | string,
+): string {
+  const url = new URL(`${baseUrl.replace(/\/+$/, "")}/pvd`);
+  url.searchParams.set("z", String(zoom));
+  url.searchParams.set("x", String(x));
+  url.searchParams.set("y", String(y));
+  return url.toString();
+}
+
 type StoryOverlayProps = {
   plan: TripPlan;
   map: MapProjector;
@@ -93,6 +120,11 @@ type PoiMarkerProps = {
 
 type RouteLineProps = {
   route: RouteLeg;
+  transport: {
+    icon: string | null;
+    fallbackIcon: string | null;
+    label: string;
+  };
   map: MapProjector;
   stateRef: MutableRefObject<MapStageState>;
   animationRef: MutableRefObject<RouteAnimation | null>;
@@ -208,12 +240,15 @@ function PoiMarker({
 
 function RouteLine({
   route,
+  transport,
   map,
   stateRef,
   animationRef,
   reducedMotion,
 }: RouteLineProps) {
-  const lineRef = useRef<THREE.Line | null>(null);
+  const lineRef = useRef<Line2 | null>(null);
+  const vehicleRef = useRef<THREE.Group | null>(null);
+  const vehicleHtmlRef = useRef<HTMLDivElement>(null);
   const lastAnimationStartedAtRef = useRef<number | null>(null);
   const lastDrawProgressRef = useRef<number | null>(null);
   const lastVisibleRef = useRef(false);
@@ -227,24 +262,25 @@ function RouteLine({
     [map, route.geometry],
   );
   const geometry = useMemo(() => {
-    const nextGeometry = new THREE.BufferGeometry();
-    nextGeometry.setAttribute(
-      "position",
-      new THREE.BufferAttribute(projectedPositions.slice(), 3),
-    );
+    const nextGeometry = new LineGeometry();
+    nextGeometry.setPositions(projectedPositions);
     return nextGeometry;
   }, [projectedPositions]);
   const sampler = useMemo(() => createRouteSampler(route.geometry), [route.geometry]);
   const line = useMemo(() => {
-    const nextLine = new THREE.Line(
+    const nextLine = new Line2(
       geometry,
-      new THREE.LineBasicMaterial({
+      new LineMaterial({
+        linewidth: 4,
+        dashed: false,
         transparent: true,
         opacity: 0.95,
         depthTest: false,
         depthWrite: false,
       }),
     );
+    nextLine.computeLineDistances();
+    nextLine.geometry.instanceCount = 0;
     nextLine.visible = false;
     nextLine.frustumCulled = false;
     nextLine.renderOrder = 10000;
@@ -269,31 +305,53 @@ function RouteLine({
 
     const stageState = stateRef.current;
     const visible = stageState.visibleRouteLegIds.includes(route.id);
-    const positionAttribute = geometry.getAttribute("position") as THREE.BufferAttribute;
-    const restorePartialPoint = () => {
-      const partialIndex = lastPartialIndexRef.current;
+    const instanceEnd = geometry.getAttribute(
+      "instanceEnd",
+    ) as THREE.InterleavedBufferAttribute;
+    const instanceDistanceStart = geometry.getAttribute(
+      "instanceDistanceStart",
+    ) as THREE.InterleavedBufferAttribute;
+    const instanceDistanceEnd = geometry.getAttribute(
+      "instanceDistanceEnd",
+    ) as THREE.InterleavedBufferAttribute;
+    const restorePartialSegment = () => {
+      const partialSegment = lastPartialIndexRef.current;
 
-      if (partialIndex === null) {
+      if (partialSegment === null) {
         return;
       }
 
-      const offset = partialIndex * 3;
-      positionAttribute.setXYZ(
-        partialIndex,
-        projectedPositions[offset],
-        projectedPositions[offset + 1],
-        projectedPositions[offset + 2],
+      const startOffset = partialSegment * 3;
+      const endOffset = startOffset + 3;
+      const end = [
+        projectedPositions[endOffset],
+        projectedPositions[endOffset + 1],
+        projectedPositions[endOffset + 2],
+      ];
+      instanceEnd.setXYZ(partialSegment, end[0], end[1], end[2]);
+      instanceEnd.data.needsUpdate = true;
+      instanceDistanceEnd.setX(
+        partialSegment,
+        instanceDistanceStart.getX(partialSegment) + Math.hypot(
+          end[0] - projectedPositions[startOffset],
+          end[1] - projectedPositions[startOffset + 1],
+          end[2] - projectedPositions[startOffset + 2],
+        ),
       );
-      positionAttribute.needsUpdate = true;
+      instanceDistanceEnd.data.needsUpdate = true;
       lastPartialIndexRef.current = null;
     };
 
     if (!visible) {
-      restorePartialPoint();
-      if (lastVisibleRef.current) {
-        geometry.setDrawRange(0, 0);
-      }
+      restorePartialSegment();
+      activeLine.geometry.instanceCount = 0;
       activeLine.visible = false;
+      if (vehicleRef.current) {
+        vehicleRef.current.visible = false;
+      }
+      if (vehicleHtmlRef.current) {
+        vehicleHtmlRef.current.style.display = "none";
+      }
       lastAnimationStartedAtRef.current = null;
       lastDrawProgressRef.current = null;
       lastVisibleRef.current = false;
@@ -305,43 +363,59 @@ function RouteLine({
       ? animationRef.current
       : null;
     const now = performance.now();
-    const drawProgress = animation
-      ? getRouteAnimationProgress(animation.draw, now, reducedMotion.current)
-      : 1;
+    const { progress: drawProgress, sample: drawSample } = getRouteAnimationFrame(
+      sampler,
+      animation?.draw ?? null,
+      now,
+      reducedMotion.current,
+    );
     const active = stageState.activeRouteLegId === route.id;
     const canDraw = drawProgress > 0;
     const shouldUpdateGeometry = !lastVisibleRef.current
       || lastAnimationStartedAtRef.current !== (animation?.draw.startedAt ?? null)
       || lastDrawProgressRef.current !== drawProgress;
+    const projectedSample = drawSample && canDraw && route.geometry.length >= 2
+      && (animation !== null || shouldUpdateGeometry)
+      ? map.projectArrayCoordinate(toMapCoordinate(drawSample.point), [0, 0, 0])
+      : null;
 
     if (shouldUpdateGeometry) {
-      const drawSample = sampler(drawProgress);
-
       if (drawSample && canDraw && route.geometry.length >= 2) {
-        const projectedSample = map.projectArrayCoordinate(
-          toMapCoordinate(drawSample.point),
-          [0, 0, 0],
-        );
-        const partialIndex = Math.min(
-          drawSample.segmentIndex + 1,
-          route.geometry.length - 1,
-        );
-        restorePartialPoint();
-        if (drawProgress < 1) {
-          positionAttribute.setXYZ(
-            partialIndex,
+        const partialSegment = drawProgress < 1
+          ? drawSample.segmentIndex
+          : null;
+
+        if (lastPartialIndexRef.current !== partialSegment) {
+          restorePartialSegment();
+        }
+        if (partialSegment !== null && projectedSample) {
+          const startOffset = partialSegment * 3;
+          const projectedZ = projectedSample[2] ?? 0;
+          instanceEnd.setXYZ(
+            partialSegment,
             projectedSample[0],
             projectedSample[1],
-            projectedSample[2] ?? 0,
+            projectedZ,
           );
-          lastPartialIndexRef.current = partialIndex;
+          instanceEnd.data.needsUpdate = true;
+          instanceDistanceEnd.setX(
+            partialSegment,
+            instanceDistanceStart.getX(partialSegment) + Math.hypot(
+              projectedSample[0] - projectedPositions[startOffset],
+              projectedSample[1] - projectedPositions[startOffset + 1],
+              projectedZ - projectedPositions[startOffset + 2],
+            ),
+          );
+          instanceDistanceEnd.data.needsUpdate = true;
+          lastPartialIndexRef.current = partialSegment;
         }
-        geometry.setDrawRange(0, Math.min(route.geometry.length, partialIndex + 1));
+        activeLine.geometry.instanceCount = drawProgress < 1
+          ? drawSample.segmentIndex + 1
+          : route.geometry.length - 1;
       } else {
-        restorePartialPoint();
-        geometry.setDrawRange(0, 0);
+        restorePartialSegment();
+        activeLine.geometry.instanceCount = 0;
       }
-      positionAttribute.needsUpdate = true;
       lastAnimationStartedAtRef.current = animation?.draw.startedAt ?? null;
       lastDrawProgressRef.current = drawProgress;
     }
@@ -349,17 +423,56 @@ function RouteLine({
     activeLine.visible = true;
     lastVisibleRef.current = true;
 
-    const material = activeLine.material as THREE.LineBasicMaterial;
-
+    const material = activeLine.material as LineMaterial;
     if (lastActiveRef.current !== active || shouldUpdateGeometry) {
       const color = active ? "#075985" : "#4338ca";
       material.color.set(color);
       material.opacity = active ? 0.98 : 0.8;
       lastActiveRef.current = active;
     }
+
+    const showVehicle = Boolean(
+      animation
+      && canDraw
+      && projectedSample
+      && (transport.icon || transport.fallbackIcon),
+    );
+    if (vehicleHtmlRef.current) {
+      vehicleHtmlRef.current.style.display = showVehicle ? "block" : "none";
+    }
+    if (vehicleRef.current) {
+      vehicleRef.current.visible = showVehicle;
+      if (showVehicle && projectedSample) {
+        vehicleRef.current.position.set(
+          projectedSample[0],
+          projectedSample[1],
+          projectedSample[2] ?? 0,
+        );
+      }
+    }
   });
 
-  return <primitive object={line} />;
+  return (
+    <>
+      <primitive object={line} />
+      <group ref={vehicleRef} visible={false}>
+        <Html
+          center
+          pointerEvents="none"
+          ref={vehicleHtmlRef}
+          wrapperClass="map-story-route-vehicle"
+        >
+          <span aria-label={transport.label} className="map-story-route-vehicle-icon" role="img">
+            {transport.icon ? (
+              <svg aria-hidden="true" viewBox="0 0 1024 1024">
+                <use href={`#${transport.icon}`} />
+              </svg>
+            ) : transport.fallbackIcon}
+          </span>
+        </Html>
+      </group>
+    </>
+  );
 }
 
 function StoryOverlay({
@@ -380,6 +493,13 @@ function StoryOverlay({
   const routesById = useMemo(
     () => new Map(routes.map((route) => [route.id, route] as const)),
     [routes],
+  );
+  const transportsByRouteId = useMemo(
+    () => new Map(transportSummary(plan).map(({ id, icon, fallbackIcon, label }) => [
+      id,
+      { icon, fallbackIcon, label },
+    ] as const)),
+    [plan],
   );
   useFrame(() => undefined, 1);
 
@@ -403,6 +523,11 @@ function StoryOverlay({
           map={map}
           reducedMotion={reducedMotion}
           route={route}
+          transport={transportsByRouteId.get(route.id) ?? {
+            icon: null,
+            fallbackIcon: null,
+            label: "交通方式",
+          }}
           stateRef={stateRef}
         />
       ))}
@@ -586,11 +711,13 @@ const BaiduMapStage = forwardRef<MapStageHandle, BaiduMapStageProps>(
       let engine: MapEngine | undefined;
       let root: ReturnType<typeof createRoot> | undefined;
       let disconnectRenderLoop: (() => void) | undefined;
-      const baiduMapAk = process.env.NEXT_PUBLIC_BAIDU_MAP_AK?.trim();
+      let themeObserver: MutationObserver | undefined;
 
-      const dispose = () => {
+      const dispose = (preserveStoryState = false) => {
         disconnectRenderLoop?.();
         disconnectRenderLoop = undefined;
+        themeObserver?.disconnect();
+        themeObserver = undefined;
 
         root?.unmount();
         root = undefined;
@@ -598,10 +725,14 @@ const BaiduMapStage = forwardRef<MapStageHandle, BaiduMapStageProps>(
         engine?.dispose();
         engine = undefined;
         engineRef.current = undefined;
-        animationRef.current = null;
+        if (!preserveStoryState) {
+          animationRef.current = null;
+        }
       };
 
       const setup = async () => {
+        const theme = document.documentElement.classList.contains("light") ? "light" : "dark";
+
         try {
           window.MAPV_BASE_URL = "/mapvthree/";
           const mapvthree = await import("@baidumap/mapv-three");
@@ -610,9 +741,23 @@ const BaiduMapStage = forwardRef<MapStageHandle, BaiduMapStageProps>(
             return;
           }
 
-          if (baiduMapAk) {
-            mapvthree.BaiduMapConfig.ak = baiduMapAk;
-          }
+          const proxyBaseUrl = getBaiduMapProxyBaseUrl();
+          const tileProvider = new mapvthree.BaiduVectorTileProvider({
+            isOffline: true,
+            url: proxyBaseUrl,
+            projection: "BD:MERCATOR",
+            displayOptions: {
+              base: true,
+              building: theme !== "dark",
+              link: true,
+              poi: true,
+            },
+          });
+          tileProvider.getTileURL = (zoom, x, y, tile) => {
+            const baseZoom = tile.loaderConfig?.baseZ ?? zoom;
+            const [level, tileX, tileY] = tile.grid.getRasterTileCoord(baseZoom, x, y);
+            return createBaiduVectorTileProxyUrl(proxyBaseUrl, level, tileX, tileY);
+          };
 
           engine = new mapvthree.Engine(container, {
             rendering: {
@@ -627,16 +772,7 @@ const BaiduMapStage = forwardRef<MapStageHandle, BaiduMapStageProps>(
               },
             },
             map: {
-              provider: baiduMapAk
-                ? new mapvthree.BaiduVectorTileProvider({
-                    ak: baiduMapAk,
-                    displayOptions: {
-                      base: true,
-                      link: true,
-                      poi: true,
-                    },
-                  })
-                : null,
+              provider: tileProvider,
               center: [firstPoi.point.lng, firstPoi.point.lat],
               projection: "EPSG:4326",
               range: 16000,
@@ -646,6 +782,19 @@ const BaiduMapStage = forwardRef<MapStageHandle, BaiduMapStageProps>(
             selection: {},
             widgets: {},
           });
+
+          if (theme === "dark") {
+            engine.renderer.setClearColor(new THREE.Color("#111827"), 1);
+          }
+
+          const currentCamera = runtimeStateRef.current;
+          if (currentCamera.cameraTarget) {
+            engine.map.setCenter(toMapCoordinate(currentCamera.cameraTarget));
+          }
+          if (currentCamera.cameraZoom !== null) {
+            engine.map.setZoom(currentCamera.cameraZoom);
+          }
+
           engineRef.current = engine;
           root = createRoot(engine.renderer.domElement);
           await root.configure(
@@ -679,11 +828,38 @@ const BaiduMapStage = forwardRef<MapStageHandle, BaiduMapStageProps>(
             (timestamp, state) => advance(timestamp, false, state),
           );
 
+          const currentTheme = document.documentElement.classList.contains("light")
+            ? "light"
+            : "dark";
+          if (currentTheme !== theme) {
+            setStatus("loading");
+            setMessage("正在应用地图主题…");
+            dispose(true);
+            void setup();
+            return;
+          }
+
+          themeObserver = new MutationObserver(() => {
+            const nextTheme = document.documentElement.classList.contains("light")
+              ? "light"
+              : "dark";
+            if (nextTheme === theme || disposed) {
+              return;
+            }
+
+            setStatus("loading");
+            setMessage("正在应用地图主题…");
+            dispose(true);
+            void setup();
+          });
+          themeObserver.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ["class"],
+          });
+
           setStatus("ready");
           setMessage(
-            baiduMapAk
-              ? "渲染引擎已就绪，百度底图可能仍在加载；路线故事已挂载到同一个 Engine"
-              : "渲染引擎已就绪，R3F 路线故事已挂载到 JSAPI Three 的 renderer / scene / camera",
+            "渲染引擎已就绪，百度底图可能仍在加载；路线故事已挂载到同一个 Engine",
           );
 
           pendingCommandsRef.current.splice(0).forEach((command) => {
@@ -708,7 +884,6 @@ const BaiduMapStage = forwardRef<MapStageHandle, BaiduMapStageProps>(
       };
     }, [applyCommandToEngine, firstPoi, onReady, plan, runtime]);
 
-    const hasBaiduMapAk = Boolean(process.env.NEXT_PUBLIC_BAIDU_MAP_AK?.trim());
     const statusLabel = status === "ready" ? "引擎就绪" : status === "error" ? "初始化失败" : "初始化中";
     const statusClass =
       status === "ready"
@@ -754,7 +929,7 @@ const BaiduMapStage = forwardRef<MapStageHandle, BaiduMapStageProps>(
                 <p>Engine：负责唯一 WebGL 渲染循环</p>
                 <p>StoryPlayer：发出语义路线命令</p>
                 <p>数据：{plan.destination} / BD-09</p>
-                <p>底图：{hasBaiduMapAk ? "Baidu 矢量底图" : "未配置 AK，当前使用故事叠加层"}</p>
+                <p>底图：Baidu 矢量底图（Lumivo 后端代理）</p>
               </div>
             </div>
           )}

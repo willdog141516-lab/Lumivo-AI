@@ -352,6 +352,29 @@ html {
   white-space: nowrap;
 }
 
+.map-story-route-vehicle {
+  pointer-events: none;
+  line-height: 0;
+  white-space: nowrap;
+}
+
+.map-story-route-vehicle-icon {
+  display: grid;
+  width: 1.8rem;
+  height: 1.8rem;
+  place-items: center;
+  color: var(--lumivo-accent-text);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.map-story-route-vehicle-icon svg {
+  display: block;
+  width: 1.8rem;
+  height: 1.8rem;
+  fill: currentColor;
+}
+
 .map-story-poi-marker-icons {
   display: block;
   width: 2.4rem;
@@ -556,6 +579,22 @@ html {
 
 .light .story-player-panel [class~="bg-cyan-300/15"] {
   background-color: var(--lumivo-accent-soft) !important;
+}
+
+.light .story-player-transport > div {
+  border-color: var(--lumivo-accent-border) !important;
+  background-color: var(--lumivo-surface) !important;
+  box-shadow: 0 25px 50px -12px var(--lumivo-shadow) !important;
+  color: var(--lumivo-page-fg) !important;
+}
+
+.light .story-player-transport [aria-pressed="true"] {
+  background-color: var(--lumivo-accent-soft) !important;
+  color: var(--lumivo-accent-text) !important;
+}
+
+.light .story-player-transport [class~="text-cyan-100/80"] {
+  color: var(--lumivo-accent-text) !important;
 }
 
 .light .trip-story-experience [class~="bg-[#02050d]"] {
