@@ -57,6 +57,11 @@ test("sends the complete dialogue to playable planning", () => {
   assert.doesNotMatch(componentSource, /const canPlan/);
 });
 
+test("keeps transport preference controls on the Story Map instead of AI chat", () => {
+  assert.doesNotMatch(componentSource, /preferred-transport|transportOptions|TransportMode/);
+  assert.doesNotMatch(componentSource, /history: messages,\s*transport,/);
+});
+
 test("keeps the generated plan in the dialogue before opening the map story", () => {
   assert.match(componentSource, /transportSummaryMarkdown\(result\.plan\)/);
   assert.match(componentSource, /const \[hasPlayablePlan, setHasPlayablePlan\] = useState\(false\)/);

@@ -12,13 +12,13 @@ Lumivo AI is a China-first travel-planning experience where conversation and map
 
 The MVP proves the complete experience locally before any production deployment work. It must be possible to develop and verify the product with a Next.js process on port 8989 and a backend process on port 8000.
 
-## Current local implementation addendum (2026-08-21)
+## Current local implementation addendum (2026-09-22)
 
-The implemented planning slice is TypeScript Node JSON transport: `POST /api/trips/plan` accepts `TripPlanRequest` and returns `PlanningResult` directly for the validated Nanjing fixture. Browser persistence stores only the fixture id/version marker and reloads the canonical fixture. The FastAPI, Pydantic, and `application/x-ndjson` sections below are historical larger-architecture proposals, not the current implementation contract.
+The current frontend uses the sibling Python FastAPI service as its canonical planning boundary. The AI chat page still uses compatibility endpoints for chat, while TripClient consumes the canonical NDJSON planning, revision, and reroute endpoints and saves playable results in browser storage.
 
-The current local slice exposes `GET /health`, `POST /api/chat`, and `POST /api/trips/plan`, with the Next.js AI search page at `/` and `/ai` as a compatible entry point. Playable planning results drill down to `/trip`, which renders the existing MapStage story experience. Free-form chat accepts arbitrary China destinations and returns conversational suggestions. The planning endpoint accepts only `南京`/`南京市` with three days, sends fixture UID/name candidates to the configured OpenAI-compatible provider, and returns the existing `nanjingPlanningResult` only after strict selection validation. It does not claim verified Baidu data for other destinations, and the earlier FastAPI/Pydantic Phase 2 direction remains superseded while the map/provider invariants remain in force.
+On the /trip Story Map, the playback panel offers public transport, driving, walking, and cycling preference controls. Selecting a mode requests real Baidu routes for every consecutive stop pair, keeps the trip ID and POIs, increments the plan version, and replaces playback with the matching new timeline. The request omits old route geometry; any failed leg rejects the entire change and leaves the current playable result intact. Fixture route geometry is fixed, so its controls are disabled with an explanation.
 
-The broader map-backed architecture below remains future work. Its historical FastAPI, Pydantic, `TripClient`, and NDJSON contracts must not be presented as implemented behavior.
+The architecture and contract sections below describe the current local implementation where noted; live provider credentials, quotas, and browser acceptance remain separate verification work.
 
 ## 2. Scope
 
@@ -103,6 +103,7 @@ TripClient is the frontend interface to FastAPI:
 interface TripClient {
   plan(request: TripRequest, onProgress: (event: PlanningEvent) => void): Promise<PlanningResult>;
   revise(request: ReviseTripRequest, onProgress: (event: PlanningEvent) => void): Promise<PlanningResult>;
+  reroute(request: { plan: TripPlan; transport: "walk" | "transit" | "drive" | "ride" }, onProgress: (event: PlanningEvent) => void): Promise<PlanningResult>;
 }
 ```
 
@@ -228,7 +229,7 @@ type TripRequest = {
   interests?: string[];
   pace?: "relaxed" | "balanced" | "intensive";
   budget?: "economy" | "standard" | "premium";
-  transport?: Array<"walk" | "transit" | "drive" | "ride">;
+  transport?: "walk" | "transit" | "drive" | "ride";
   message: string;
 };
 
@@ -262,16 +263,11 @@ type RouteLeg = {
 
 type TripDay = {
   day: number;
+  date?: string;
   title: string;
   summary: string;
   stops: TripStop[];
   routeLegs: RouteLeg[];
-};
-
-type PlanWarning = {
-  code: "OPENING_HOURS_UNCERTAIN" | "SCHEDULE_TIGHT" | "TRANSPORT_LIMITED";
-  message: string;
-  poiUid?: string;
 };
 
 type TripPlan = {
@@ -280,7 +276,7 @@ type TripPlan = {
   destination: string;
   summary: string;
   days: TripDay[];
-  warnings: PlanWarning[];
+  warnings: string[];
 };
 
 type StoryCommandType =
@@ -351,8 +347,11 @@ All times are ISO 8601 strings with an explicit offset when a date exists. All d
   - final result: `{ plan: TripPlan, timeline: StoryTimeline }`
 - `GET /api/v1/health`
   - result: local process health and configured Adapter modes without exposing keys
+- POST /api/v1/trips/reroute
+  - body: compact plan metadata/stops plus transport; old route legs and geometry are omitted
+  - final result: validated plan with the same trip ID, incremented version, new route legs, and matching timeline
 
-Both POST endpoints return `application/x-ndjson`. Each line is one progress-event envelope. The final `planning.completed` event contains `PlanningResult` in its data field; an error event contains `AppError` and terminates the stream.
+All three POST endpoints return application/x-ndjson. Each line is one progress-event envelope. The final planning.completed event contains PlanningResult in its data field; an error event contains AppError and terminates the stream. Reroute errors do not expose partial plans.
 
 ### 8.2 Progress events
 

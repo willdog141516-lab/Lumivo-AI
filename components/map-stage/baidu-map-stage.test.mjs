@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -11,6 +11,39 @@ const BaiduMapStage = baiduMapStageModule.default.default;
 const source = readFileSync(new URL("./baidu-map-stage.tsx", import.meta.url), "utf8");
 const layoutSource = readFileSync(new URL("../../app/layout.tsx", import.meta.url), "utf8");
 const styleSource = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
+
+test("uses the backend map proxy without a browser Baidu key", () => {
+  assert.doesNotMatch(source, /NEXT_PUBLIC_BAIDU_BROWSER_AK/);
+  assert.doesNotMatch(source, /NEXT_PUBLIC_BAIDU_MAP_AK/);
+  assert.match(source, /isOffline: true/);
+  assert.match(source, /getBaiduMapProxyBaseUrl/);
+});
+
+test("ships the mapv-three default style asset", () => {
+  assert.equal(
+    existsSync(new URL("../../public/mapvthree/assets/map/style/default.json", import.meta.url)),
+    true,
+  );
+});
+
+test("builds tile requests with only backend coordinates", () => {
+  assert.equal(
+    baiduMapStageModule.getBaiduMapProxyBaseUrl("https://api.example/"),
+    "https://api.example/api/v1/map/baidu",
+  );
+
+  const tileUrl = new URL(
+    baiduMapStageModule.createBaiduVectorTileProxyUrl(
+      "https://api.example/api/v1/map/baidu/",
+      7,
+      "M1",
+      -2,
+    ),
+  );
+  assert.equal(tileUrl.pathname, "/api/v1/map/baidu/pvd");
+  assert.deepEqual([...tileUrl.searchParams.keys()], ["z", "x", "y"]);
+  assert.deepEqual(Object.fromEntries(tileUrl.searchParams), { z: "7", x: "M1", y: "-2" });
+});
 
 const renderStage = (isPlaying) =>
   renderToStaticMarkup(
@@ -51,6 +84,19 @@ test("map status uses the active plan destination", () => {
   );
 
   assert.match(html, /成都 · 路线故事/);
+});
+
+test("offline map styling and backend tile proxy stay in one provider", () => {
+  assert.match(source, /isOffline: true/);
+  assert.match(source, /url: proxyBaseUrl/);
+  assert.match(source, /projection: "BD:MERCATOR"/);
+  assert.match(source, /tileProvider\.getTileURL/);
+  assert.match(source, /createBaiduVectorTileProxyUrl\(proxyBaseUrl, level, tileX, tileY\)/);
+  assert.doesNotMatch(source, /styleJson/);
+  assert.match(source, /base: true/);
+  assert.match(source, /building: theme !== "dark"/);
+  assert.match(source, /poi: true/);
+  assert.match(source, /engine\.renderer\.setClearColor\(new THREE\.Color\("#111827"\), 1\)/);
 });
 
 test("route camera zoom adapts to route distance", () => {
@@ -181,20 +227,34 @@ test("route lines skip hidden work and update geometry conditionally", () => {
   );
 
   assert.match(routeSource, /if \(!visible\) \{[\s\S]*return;/);
-  assert.match(routeSource, /if \(shouldUpdateGeometry\) \{[\s\S]*positionAttribute\.needsUpdate = true;/);
+  assert.match(routeSource, /if \(shouldUpdateGeometry\) \{[\s\S]*activeLine\.geometry\.instanceCount =/);
   assert.match(routeSource, /material\.opacity = active \? 0\.98 : 0\.8;/);
 });
 
-test("route drawing restores its previous partial vertex before advancing", () => {
+test("story routes use a thick solid line and a route-specific vehicle marker", () => {
+  const routeSource = source.slice(
+    source.indexOf("function RouteLine"),
+    source.indexOf("function StoryOverlay"),
+  );
+
+  assert.match(routeSource, /new Line2\(/);
+  assert.match(routeSource, /dashed:\s*false/);
+  assert.match(routeSource, /linewidth:\s*4/);
+  assert.match(routeSource, /transport\.icon/);
+  assert.match(routeSource, /vehicleRef/);
+});
+
+test("route drawing restores its previous partial segment before advancing", () => {
   const routeSource = source.slice(
     source.indexOf("function RouteLine"),
     source.indexOf("function StoryOverlay"),
   );
 
   assert.match(routeSource, /const lastPartialIndexRef = useRef<number \| null>\(null\)/);
-  assert.match(routeSource, /const restorePartialPoint = \(\) => \{[\s\S]*projectedPositions\[offset\]/);
-  assert.match(routeSource, /if \(!visible\) \{[\s\S]*restorePartialPoint\(\)/);
-  assert.match(routeSource, /restorePartialPoint\(\);\s*if \(drawProgress < 1\)/);
+  assert.match(routeSource, /const restorePartialSegment = \(\) => \{[\s\S]*instanceEnd\.setXYZ\(partialSegment/);
+  assert.match(routeSource, /if \(!visible\) \{[\s\S]*restorePartialSegment\(\)/);
+  assert.match(routeSource, /if \(lastPartialIndexRef\.current !== partialSegment\) \{\s*restorePartialSegment\(\)/);
+  assert.match(routeSource, /instanceDistanceEnd\.setX\(/);
 });
 
 test("route travel does not render a world-scaled outline arrow", () => {
@@ -206,7 +266,7 @@ test("route travel does not render a world-scaled outline arrow", () => {
   assert.doesNotMatch(routeSource, /travelHead/);
   assert.doesNotMatch(routeSource, /new THREE\.LineSegments\(/);
   assert.doesNotMatch(routeSource, /getPixelSizeAtWorldPosition/);
-  assert.match(routeSource, /geometry\.setDrawRange\(0,/);
+  assert.match(routeSource, /activeLine\.geometry\.instanceCount =/);
 });
 
 test("story focus stays in the flat projection used by the Baidu tile provider", () => {

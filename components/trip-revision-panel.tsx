@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Select } from "@base-ui/react/select";
 import { Check, ChevronDown } from "lucide-react";
 
@@ -11,6 +11,8 @@ import type { PlanningResult } from "@/lib/trip/types";
 type TripRevisionPanelProps = {
   result: PlanningResult;
   onRevised: (result: PlanningResult) => void;
+  onBusyChange: (busy: boolean) => void;
+  isOtherActionBusy: boolean;
 };
 
 const progressLabels: Record<string, string> = {
@@ -25,26 +27,50 @@ const progressLabels: Record<string, string> = {
 export default function TripRevisionPanel({
   result,
   onRevised,
+  onBusyChange,
+  isOtherActionBusy,
 }: TripRevisionPanelProps) {
   const [day, setDay] = useState(String(result.plan.days[0]?.day ?? 1));
   const [instruction, setInstruction] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const panelRef = useRef<HTMLElement>(null);
   const dayItems = result.plan.days.map((item) => ({
     label: `第 ${item.day} 天`,
     value: String(item.day),
   }));
 
+  useEffect(() => {
+    const transportPanel = document.querySelector<HTMLElement>(".story-player-transport");
+    const panel = panelRef.current;
+    const container = panel?.offsetParent;
+    if (!transportPanel || !panel || !(container instanceof HTMLElement)) return;
+
+    const reposition = () => {
+      panel.style.top = `${transportPanel.getBoundingClientRect().bottom - container.getBoundingClientRect().top + 8}px`;
+    };
+    const observer = new ResizeObserver(reposition);
+    observer.observe(transportPanel);
+    window.addEventListener("resize", reposition);
+    reposition();
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", reposition);
+    };
+  }, [result.plan.id, result.plan.version]);
+
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmedInstruction = instruction.trim();
-    if (!trimmedInstruction || isSubmitting) {
+    if (!trimmedInstruction || isSubmitting || isOtherActionBusy) {
       return;
     }
 
     setError(null);
     setIsSubmitting(true);
+    onBusyChange(true);
     setStatus("正在提交调整…");
     try {
       const revised = await tripClient.reviseTrip(
@@ -71,11 +97,15 @@ export default function TripRevisionPanel({
       }
     } finally {
       setIsSubmitting(false);
+      onBusyChange(false);
     }
   }
 
   return (
-    <aside className="pointer-events-none absolute left-5 top-20 z-30 w-[min(22rem,calc(100%-2.5rem))] sm:left-8">
+    <aside
+      className="pointer-events-none absolute left-5 top-32 z-30 w-[min(22rem,calc(100%-2.5rem))] sm:left-8 sm:top-36"
+      ref={panelRef}
+    >
       <details className="trip-revision-panel pointer-events-auto rounded-2xl border border-cyan-200/20 bg-slate-950/85 p-4 text-slate-100 shadow-2xl shadow-cyan-950/30 backdrop-blur">
         <summary className="cursor-pointer list-none text-sm font-medium text-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200">
           调整某一天的路线
@@ -85,7 +115,7 @@ export default function TripRevisionPanel({
             调整天数
           </label>
           <Select.Root
-            disabled={isSubmitting}
+            disabled={isSubmitting || isOtherActionBusy}
             items={dayItems}
             onValueChange={(value) => {
               if (typeof value === "string") {
@@ -137,7 +167,7 @@ export default function TripRevisionPanel({
           </label>
           <textarea
             className="h-[140px] w-full resize-none overflow-y-auto rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus-visible:ring-2 focus-visible:ring-cyan-200"
-            disabled={isSubmitting}
+            disabled={isSubmitting || isOtherActionBusy}
             id="trip-revision-instruction"
             maxLength={200}
             onChange={(event) => setInstruction(event.target.value)}
@@ -146,7 +176,7 @@ export default function TripRevisionPanel({
           />
           <button
             className="trip-revision-submit w-full rounded-lg bg-cyan-100 px-3 py-2 text-sm font-semibold text-slate-900 transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={isSubmitting || !instruction.trim()}
+            disabled={isSubmitting || isOtherActionBusy || !instruction.trim()}
             type="submit"
           >
             {isSubmitting ? "调整中…" : "提交调整"}

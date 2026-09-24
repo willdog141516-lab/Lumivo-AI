@@ -72,6 +72,8 @@ CORS_ORIGIN=http://localhost:8989
 
 已有 `DEEPSEEK_API_KEY` 时会作为 `AI_API_KEY` 的 fallback；key 只在 backend 使用，不会进入浏览器。
 
+百度底图不再由浏览器直连百度。MapStage 使用离线模式的 `mapv-three` provider，瓦片和样式资源统一请求 `NEXT_PUBLIC_AI_BACKEND_URL` 对应的后端地图代理；浏览器 Network 中不应出现百度 host、AK、SK、SN 或 `ApiAuthorization`。实时底图需要后端配置 `LUMIVO_BAIDU_VECTOR_TILE_AK`（百度浏览器端 AK，仅存后端）；路线和地理编码仍使用服务端 `LUMIVO_BAIDU_MAP_AK`。
+
 常用检查：
 
 ```bash

@@ -11,16 +11,25 @@ import {
   createStoryPlayer,
   type StoryPlayer,
 } from "@/lib/story-player/player";
+import type { TransportMode } from "@/lib/trip/client";
 import type { StoryCommand, StoryTimeline, TripPlan } from "@/lib/trip/types";
 
 type TripStoryExperienceProps = {
   plan: TripPlan;
   timeline: StoryTimeline;
+  onTransportChange: (mode: TransportMode) => void | Promise<void>;
+  reroutingMode: TransportMode | null;
+  transportError: string | null;
+  isTripRevisionBusy: boolean;
 };
 
 export default function TripStoryExperience({
   plan,
   timeline,
+  onTransportChange,
+  reroutingMode,
+  transportError,
+  isTripRevisionBusy,
 }: TripStoryExperienceProps) {
   const stageRef = useRef<MapStageHandle>(null);
   const [stageReady, setStageReady] = useState(false);
@@ -69,7 +78,15 @@ export default function TripStoryExperience({
         plan={plan}
         onReady={handleStageReady}
       />
-      <StoryPlayerPanel plan={plan} player={player} timeline={timeline} />
+      <StoryPlayerPanel
+        isTripRevisionBusy={isTripRevisionBusy}
+        onTransportChange={onTransportChange}
+        plan={plan}
+        player={player}
+        reroutingMode={reroutingMode}
+        timeline={timeline}
+        transportError={transportError}
+      />
     </main>
   );
 }

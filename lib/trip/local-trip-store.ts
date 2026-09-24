@@ -34,6 +34,13 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function isGeoPoint(value: unknown): boolean {
+  return isRecord(value)
+    && value.crs === "BD09"
+    && typeof value.lng === "number" && Number.isFinite(value.lng)
+    && typeof value.lat === "number" && Number.isFinite(value.lat);
+}
+
 function hasPoiNameAnchor(poiName: unknown, narration: string): boolean {
   if (!isNonEmptyString(poiName)) {
     return false;
@@ -76,6 +83,7 @@ function collectPlanningReferences(plan: Record<string, unknown>): PlanningRefer
       if (!isRecord(stop)
         || !isRecord(stop.poi)
         || !isNonEmptyString(stop.poi.uid)
+        || !isGeoPoint(stop.poi.point)
         || !isNonEmptyString(stop.narration)
         || !hasPoiNameAnchor(stop.poi.name, stop.narration)) {
         return null;
@@ -89,7 +97,12 @@ function collectPlanningReferences(plan: Record<string, unknown>): PlanningRefer
     }
 
     for (const routeLeg of day.routeLegs) {
-      if (!isRecord(routeLeg) || !isNonEmptyString(routeLeg.id) || routeLegIds.has(routeLeg.id)) {
+      if (!isRecord(routeLeg)
+        || !isNonEmptyString(routeLeg.id)
+        || routeLegIds.has(routeLeg.id)
+        || !Array.isArray(routeLeg.geometry)
+        || routeLeg.geometry.length < 2
+        || !routeLeg.geometry.every(isGeoPoint)) {
         return null;
       }
 
@@ -123,6 +136,18 @@ function hasValidTimeline(
       }
 
       switch (command.type) {
+        case "globe.focus":
+          if (!isGeoPoint(command.payload.target)) {
+            return false;
+          }
+          break;
+        case "camera.flyTo":
+          if (!isGeoPoint(command.payload.target)
+            || typeof command.payload.zoom !== "number"
+            || !Number.isFinite(command.payload.zoom)) {
+            return false;
+          }
+          break;
         case "poi.show":
           if (!isNonEmptyString(command.payload.poiUid) || !references.poiNarrations.has(command.payload.poiUid)) {
             return false;

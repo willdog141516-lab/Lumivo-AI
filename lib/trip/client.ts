@@ -1,5 +1,7 @@
 import type {
   PlanningResult,
+  RouteLeg,
+  TripDay,
   TripPlan,
 } from "@/lib/trip/types";
 
@@ -7,6 +9,8 @@ export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
 };
+
+export type TransportMode = RouteLeg["mode"];
 
 export type PlanInput = {
   message: string;
@@ -19,6 +23,16 @@ export type RevisionInput = {
   plan: TripPlan;
   day: number;
   instruction: string;
+};
+
+export type RerouteInput = {
+  plan: TripPlan;
+  transport: TransportMode;
+};
+
+type RerouteRequest = {
+  plan: Omit<TripPlan, "days"> & { days: Omit<TripDay, "routeLegs">[] };
+  transport: TransportMode;
 };
 
 export type PlanningEvent = {
@@ -102,9 +116,31 @@ export class TripClient {
     return this.stream("/api/v1/trips/revise", input, options);
   }
 
+  rerouteTrip(input: RerouteInput, options: StreamOptions = {}): Promise<PlanningResult> {
+    const { plan } = input;
+    const snapshot: RerouteRequest = {
+      plan: {
+        id: plan.id,
+        version: plan.version,
+        destination: plan.destination,
+        summary: plan.summary,
+        warnings: plan.warnings,
+        days: plan.days.map(({ day, title, date, summary, stops }) => ({
+          day,
+          title,
+          date,
+          summary,
+          stops,
+        })),
+      },
+      transport: input.transport,
+    };
+    return this.stream("/api/v1/trips/reroute", snapshot, options);
+  }
+
   private async stream(
     path: string,
-    input: PlanInput | RevisionInput,
+    input: PlanInput | RevisionInput | RerouteRequest,
     options: StreamOptions,
   ): Promise<PlanningResult> {
     const response = await this.fetcher(this.baseUrl + path, {
